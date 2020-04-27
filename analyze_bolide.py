@@ -57,7 +57,6 @@ def range_doppler_matched_filter(d,
                                  code_len=1000,
                                  i0=158699892900000, # first index to analyze
                                  i1=158699892900000, # last sample index to analyze
-                                 r_max=600, 
                                  int_f=4,   # range interpolation factor
                                             # this is  multiplied by two in the code
                                  n_codes=2, # number of codes to integrate coherently together
@@ -65,11 +64,11 @@ def range_doppler_matched_filter(d,
                                  sr=100e3,
                                  ignore_freq=250.0, # don't include Doppler shifts
                                                     # smaller than this
-                                 r_min_an=425,  # minimum range to analyze (km)
-                                 r_max_an=525,   # maximum range to analyze (km)
-                                 f_min_an=-15e3, # minimum doppler to analyze (Hz)
-                                 f_max_an=15e3, # maximum doppler to analyze
-                                 noise_bw=20e3, # receiver noise bandwidth
+                                 r_min_an=400,  # minimum range to analyze (km)
+                                 r_max_an=600,   # maximum range to analyze (km)
+                                 f_min_an=-5e3, # minimum doppler to analyze (Hz)
+                                 f_max_an=1e3, # maximum doppler to analyze
+                                 noise_bw=10e3, # receiver noise bandwidth
                                  ):
     int_f=int_f*2
     n_codes=n_codes*2
@@ -109,8 +108,8 @@ def range_doppler_matched_filter(d,
 
     # go through all time steps
     for si in range(rank,n_steps,size):
-        S=n.zeros([int_f*r_max,int_f*n_codes*code_len],dtype=n.float32)
-        read_idx=si*code_len+i0-int(code_len/2)
+        S=n.zeros([int_f*r_max_an,int_f*n_codes*code_len],dtype=n.float32)
+        read_idx=si*code_len+i0
         read_len=n_codes*code_len+code_len
         
         # go through all channels
@@ -189,6 +188,6 @@ def range_doppler_matched_filter(d,
 
 
 range_doppler_matched_filter(d,
-                             i0=158699892900000,
-                             i1=158699893300000)
+                             i0=158699892000000,
+                             i1=158699894000000)
                
