@@ -6,28 +6,47 @@ import numpy as n
 import matplotlib.pyplot as plt
 import stuffr
 
-fl=glob.glob("snr*.h5")
+fl=glob.glob("snr8/snr*.h5")
 fl.sort()
-S=n.zeros([len(fl),600])
+h=h5py.File(fl[0],"r")
+rvec=n.copy(h["rvec"].value)
+n_r=len(h["rvec"].value)
+h.close()
+S=n.zeros([len(fl),n_r])
+T=n.zeros([len(fl),n_r])
 rp=[]
 tv=[]
 dp=[]
 
+si=0
 for fi,f in enumerate(fl):
     try:
         h=h5py.File(f,"r")
-        #    S[fi,:]=h["high_snr"].value
+        print(h.keys())
+        S[si,:]=h["high_snr"].value
+        T[si,:]=h["low_snr"].value
 
-        if h["snr0"].value > 1.0:
-            rp.append(h["r0"].value)
-            dp.append(h["f0"].value)
-            tv.append(stuffr.unix2date(h["t0"].value/100e3))
+        rp.append(h["r0"].value)
+        dp.append(h["f0"].value)
+        tv.append(stuffr.unix2date(h["t0"].value/100e3))
         h.close()
+        si=si+1
     except:
-        print("error")
+        print("error %d"%(fi))
         pass
+dB=10.0*n.log10(S[0:si,:]+T[0:si,:])
+#dB=10.0*n.log10(S[0:si,:])
+for ti in range(dB.shape[0]):
+    dB[ti,:]=dB[ti,:]-n.median(dB[ti,:])
+    
+plt.pcolormesh(tv,rvec,n.transpose(dB),vmin=0,vmax=20)
+plt.title("Signal-to-noise ratio (dB)")
+plt.xlabel("Time (UTC)")
+plt.ylabel("Full propagation distance (km)")
 
-plt.figure(figsize=(16,9))
+plt.colorbar()
+plt.show()
+plt.figure(figsize=(8,6))
 plt.subplot(121)
 plt.plot(tv,rp,".")
 plt.ylabel("Delay (km)")

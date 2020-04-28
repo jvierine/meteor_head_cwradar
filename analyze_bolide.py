@@ -49,18 +49,21 @@ def get_codes(int_f=8,
         codes.append(n.tile(c0f,n_codes))
     return(codes)
     
-d=drf.DigitalRFReader("/mnt/data/juha/peru_bolide/rawdata")
+#d=drf.DigitalRFReader("/mnt/data/juha/peru_bolide/rawdata")
+d=drf.DigitalRFReader("/mnt/data/juha/peru_bolide/huancayo/MeteorHuancayo/")
+out="/mnt/data/juha/peru_bolide/huancayo"
 print(d.get_bounds("ch000"))
 
 
 def range_doppler_matched_filter(d,
+                                 out,
                                  code_seeds=[1,238,681,3099,3263],
                                  code_len=1000,
                                  i0=158699892900000, # first index to analyze
                                  i1=158699892900000, # last sample index to analyze
                                  int_f=4,   # range interpolation factor
                                             # this is  multiplied by two in the code
-                                 n_codes=4, # number of codes to integrate coherently together
+                                 n_codes=8, # number of codes to integrate coherently together
                                  sr=100e3,
                                  ignore_freq=250.0, # don't include Doppler shifts
                                                     # smaller than this
@@ -176,7 +179,7 @@ def range_doppler_matched_filter(d,
         plt.ylabel("Transmitter to receiver range (km)")
         plt.colorbar()
         plt.tight_layout()
-        plt.savefig("rd-%06d.png"%(si))
+        plt.savefig("%s/rd-%06d.png"%(out,si))
         plt.clf()
         plt.close()
 
@@ -191,7 +194,7 @@ def range_doppler_matched_filter(d,
         h_r=n.argmax(high_snr)
         l_r=n.argmax(low_snr)
 
-        h=h5py.File("snr_%06d.h5"%(read_idx),"w")
+        h=h5py.File("%s/snr_%06d.h5"%(out,read_idx),"w")
         h["XC"]=S
         h["channel_pairs"]=ch_pairs
         h["channel_code_seeds"]=code_seeds
@@ -211,6 +214,9 @@ def range_doppler_matched_filter(d,
 
 
 range_doppler_matched_filter(d,
+                             out=out,
+                             r_min_an=550,
+                             r_max_an=600,
                              i0=158699892000000,
                              i1=158699894000000)
                
