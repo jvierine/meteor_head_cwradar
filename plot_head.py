@@ -6,7 +6,10 @@ import numpy as n
 import matplotlib.pyplot as plt
 import stuffr
 
-fl=glob.glob("snr8/snr*.h5")
+#fl=glob.glob("snr8/snr*.h5")
+fl=glob.glob("/mnt/data/juha/peru_bolide/huancayo/snr*.h5")
+#fl=glob.glob("/mnt/data/juha/peru_bolide/azpitia/snr*.h5")
+#fl=glob.glob("/mnt/data/juha/peru_bolide/santarosa/snr*.h5")
 fl.sort()
 h=h5py.File(fl[0],"r")
 rvec=n.copy(h["rvec"].value)
@@ -39,7 +42,7 @@ dB=10.0*n.log10(S[0:si,:]+T[0:si,:])
 for ti in range(dB.shape[0]):
     dB[ti,:]=dB[ti,:]-n.median(dB[ti,:])
     
-plt.pcolormesh(tv,rvec,n.transpose(dB),vmin=0,vmax=20)
+plt.pcolormesh(tv,rvec,n.transpose(dB),vmin=0,vmax=15)
 plt.title("Signal-to-noise ratio (dB)")
 plt.xlabel("Time (UTC)")
 plt.ylabel("Full propagation distance (km)")
