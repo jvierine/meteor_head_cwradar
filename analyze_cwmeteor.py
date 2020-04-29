@@ -33,8 +33,9 @@ for s in seeds:
     
     codes.append(bpsk(s,code_len))
 #print(n.real(codes[0]))
+dname="/mnt/data/juha/peru_bolide/santarosa/PeruMeteorSantaRosa"
 
-d=drf.DigitalRFReader("/mnt/data/juha/peru_bolide/rawdata")
+d=drf.DigitalRFReader(dname)
 
 c=d.get_channels()
 #print(d.get_digital_rf_metadata(c[0]))
@@ -46,12 +47,37 @@ print(N_segments)
 print(b[0])
 r_max=600
 Nr=600
+ch_idx=n.arange(len(c))
+ch_idx=[1]
 for si in range(rank,N_segments,size):
     S=n.zeros([N_per_seg,Nr])
+    C=n.zeros([N_per_seg,code_len])
     RTI=n.zeros([N_per_seg,Nr])
 
-    for ci in range(len(c)):
-        z=d.read_vector_c81d(si*code_len*N_per_seg+b[0],N_per_seg*code_len,c[0])
+    # all channels
+    for ci in ch_idx:
+        z=d.read_vector_c81d(si*code_len*N_per_seg+b[0],N_per_seg*code_len,c[ci])
+
+        std_est=n.median(n.abs(z))
+        bidx=n.where(n.abs(z)>6*std_est)
+        z[bidx]=0.0
+#        plt.plot(z[0:10000].real)
+ #       plt.plot(z[0:10000].imag)
+  #      plt.show()
+        Z=n.fft.fft(z)
+        ZS=n.abs(Z)
+        std_est=n.median(ZS)
+        bad_idx=n.where( ZS>15.0*std_est)[0]
+        Z[bad_idx]=0        
+        z=n.fft.ifft(Z)
+#        cf=n.conj(n.fft.fft(bpsk(seeds[0],code_len)))
+ #       for ti in range(N_per_seq):
+  #          C[ti,:]=n.fft.ifft(cf*n.fft.fft(z[(ti*code_len):((ti+1)*code_len)]))
+   #     plt.pcolormesh(n.abs(C))
+    #    plt.show()
+        
+        
+        
         for seed_idx in seeds:
             r=prc_lib.analyze_prc(n.copy(z),Nranges=600,code=bpsk(seed_idx,code_len),gc_rem=False,rfi_rem=False,dec=1,station=seed_idx)
             S+=n.abs(r["spec"])**2.0
