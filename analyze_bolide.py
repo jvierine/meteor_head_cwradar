@@ -17,7 +17,6 @@ size = comm.Get_size()
 rank = comm.Get_rank()
 print("comm rank %d size %d"%(rank,size))
 
-
 def bpsk(seed,length):
     n.random.seed(seed)
     code=n.random.random(length)
@@ -26,6 +25,25 @@ def bpsk(seed,length):
     code=-1.0*n.sign(code)
     code=n.array(code,dtype=n.complex64)
     return(code)
+
+def rfi_rem(zin):
+    z=n.copy(zin)
+    # remove spikes
+    std_est=n.median(n.abs(z))
+    bidx=n.where(n.abs(z)>6*std_est)
+    z[bidx]=0.0
+
+    # remove spectral spikes
+    Z=n.fft.fft(z)
+    ZS=n.abs(Z)
+#    plt.plot(ZS)
+ #   plt.show()
+    std_est=n.median(ZS)
+    bad_idx=n.where( ZS>15.0*std_est)[0]
+    Z[bad_idx]=0        
+    z=n.fft.ifft(Z)
+    return(z)
+
 
 def get_codes(int_f=8,
               code_len=1000,
@@ -49,12 +67,6 @@ def get_codes(int_f=8,
         codes.append(n.tile(c0f,n_codes))
     return(codes)
     
-#d=drf.DigitalRFReader("/mnt/data/juha/peru_bolide/rawdata")
-d=drf.DigitalRFReader("/mnt/data/juha/peru_bolide/huancayo/MeteorHuancayo/")
-out="/mnt/data/juha/peru_bolide/huancayo"
-print(d.get_bounds("ch000"))
-
-
 def range_doppler_matched_filter(d,
                                  out,
                                  code_seeds=[1,238,681,3099,3263],
@@ -63,7 +75,7 @@ def range_doppler_matched_filter(d,
                                  i1=158699892900000, # last sample index to analyze
                                  int_f=4,   # range interpolation factor
                                             # this is  multiplied by two in the code
-                                 n_codes=8, # number of codes to integrate coherently together
+                                 n_codes=4, # number of codes to integrate coherently together
                                  sr=100e3,
                                  ignore_freq=250.0, # don't include Doppler shifts
                                                     # smaller than this
@@ -72,7 +84,9 @@ def range_doppler_matched_filter(d,
                                  f_min_an=-4e3, # minimum doppler to analyze (Hz)
                                  f_max_an=1e3, # maximum doppler to analyze
                                  noise_bw=10e3, # receiver noise bandwidth
-                                 codes_per_step=1 #
+                                 codes_per_step=1, #
+                                 rfi_remove=False,
+                                 rx_channels=[0,1]
                                  ):
     int_f=int_f*2
 
@@ -124,9 +138,12 @@ def range_doppler_matched_filter(d,
         read_idx=si*code_len*codes_per_step+i0
         read_len=n_codes*code_len+code_len
         
-        # go through all pairs
-        for chi in range(len(c)):
+        # go through all rx channels 
+        for chi in rx_channels:
             z0=d.read_vector_c81d(read_idx,read_len,c[chi])
+
+            if rfi_remove:
+                z0=rfi_rem(z0)
 
             # interpolate using a rectangular filter
             # make sure we shift the signal back so that no range offset is created
@@ -147,11 +164,11 @@ def range_doppler_matched_filter(d,
                     S[ci,rii,:]+=n.fft.fftshift(Z0*n.conj(Z1))[gfidx]
                     
         # average over all XCs to obtain power estimate
-        S0=n.mean(n.abs(S),axis=0)
+        S0=n.sqrt(n.mean(n.abs(S)**2.0,axis=0))
         
         noise_floor=n.median(S0)
         # create signal_to_noise ratio estimate
-        snr=(S0-noise_floor)/noise_floor
+        snr=S0/noise_floor
 
         # create a copy 
         snr0=n.copy(snr)
@@ -160,18 +177,26 @@ def range_doppler_matched_filter(d,
         # features in the range-doppler matched filter output.
         # gently try to filter these out using a 2d FFT
         F=n.fft.fft2(snr0)
+#        FA=n.abs(F)
+ #       MFA=ss.medfilt2d(FA,21)
+  #      plt.pcolormesh(10.0*n.log10(FA-MFA))
+   #     plt.colorbar()
+    #    plt.show()
+        
         for fri in range(F.shape[0]):
             med_amp=n.median(n.abs(F[fri,:]))
-            bad_f_idx=n.where(n.abs(F[fri,:]) > 5.0*med_amp)[0]
+            bad_f_idx=n.where(n.abs(F[fri,:]) > 10.0*med_amp)[0]
             F[fri,bad_f_idx]=0.0
         snr0=n.abs(n.fft.ifft2(F))
-#        snr0[n.min(gridx):n.max(gridx),n.min(sfidx):n.max(sfidx)]=snr0F
+        
+
     
-        plt.figure(figsize=(16*1.5,1.5*12))
-        n_floor=n.median(snr0)#[n.min(gridx):n.max(gridx),n.min(gfidx):n.max(gfidx)])
-        snr0=snr0-n_floor
-        snr0[snr0<0]=1e-6
-        plt.pcolormesh(fvec0,rvec0,10.0*n.log10(snr0),vmin=-10,vmax=10.0,cmap="gnuplot2")
+        plt.figure(figsize=(16,9))
+#        n_floor=n.median(snr0)
+ #       snr0=snr0-n_floor
+  #      snr0=snr0/n.median(n.abs(snr0))
+
+        plt.pcolormesh(fvec0,rvec0,snr0,vmin=-2,vmax=20.0,cmap="inferno")
         plt.title("%s\n"%(stuffr.unix2datestr(read_idx/sr)))
         plt.xlim([f_min_an,f_max_an])
         plt.ylim([r_min_an,r_max_an])
@@ -179,7 +204,7 @@ def range_doppler_matched_filter(d,
         plt.ylabel("Transmitter to receiver range (km)")
         plt.colorbar()
         plt.tight_layout()
-        plt.savefig("%s/rd-%06d.png"%(out,si))
+        plt.savefig("%s/rd-%06d.png"%(out,read_idx))
         plt.clf()
         plt.close()
 
@@ -213,10 +238,57 @@ def range_doppler_matched_filter(d,
         print("segment %d/%d (%s)  max_snr=%1.2f range=%1.2f (km) doppler=%1.2f (Hz)"%( si, n_steps, stuffr.unix2datestr(read_idx/sr), peak_snr, r0, f0 ))
 
 
-range_doppler_matched_filter(d,
-                             out=out,
-                             r_min_an=550,
-                             r_max_an=600,
-                             i0=158699892000000,
-                             i1=158699894000000)
-               
+# huancayo
+def huancayo():
+    range_doppler_matched_filter(d=drf.DigitalRFReader("/mnt/data/juha/peru_bolide/huancayo/MeteorHuancayo/"),
+                                 out="/mnt/data/juha/peru_bolide/huancayo/",
+                                 int_f=1,
+                                 n_codes=16,
+                                 rfi_remove=True,
+                                 r_min_an=500,
+                                 r_max_an=650,
+                                 f_min_an=-1e3,
+                                 f_max_an=1e3,                                 
+                                 i0=158699893000000-300000, #I'm guessing timeing 3 s ahead at huancayo.
+                                 i1=158699893000000+100000*2-300000)
+                                 
+#                                 i0=158699892000000,
+ #                                i1=158699894000000)
+def an_azpitia():
+    # azpitia
+    range_doppler_matched_filter(d=drf.DigitalRFReader("/mnt/data/juha/peru_bolide/rawdata"),
+                                 out="/mnt/data/juha/peru_bolide/azpitia"   ,
+                                 r_min_an=400,
+                                 r_max_an=600,
+                                 n_codes=8,
+                                 int_f=1,
+                                 rfi_remove=True,
+                                 i0=158699893000000,
+                                 i1=158699893000000+100000*2)
+#                                 i0=158699893056000,
+ #                                i1=158699893056000+100000*3)
+
+def santa_rosa():
+    # santa rosa
+    range_doppler_matched_filter(d=drf.DigitalRFReader("/mnt/data/juha/peru_bolide/santarosa/PeruMeteorSantaRosa"),
+                                 out="/mnt/data/juha/peru_bolide/santarosa",
+                                 r_min_an=500,
+                                 r_max_an=600,
+                                 n_codes=8,
+                                 int_f=1,                        
+                                 rx_channels=[1], # channel 0 is busted
+                                 rfi_remove=True, # santa rosa has tons of rfi
+                                 f_min_an=-5e3,
+                                 f_max_an=5e3,
+                                 i0=158699893000000,
+                                 i1=158699893000000+100000*2)
+                                 
+ #                                i0=158699893056000,
+#                                 i1=158699893056000+100000*3)
+                                 
+#                                 i0=158699892000000,
+ #                                i1=158699894000000)
+    
+an_azpitia()
+santa_rosa()
+huancayo()
