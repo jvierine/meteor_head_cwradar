@@ -1,4 +1,4 @@
-#!python
+#!/usr/bin/env python3
 # ----------------------------------------------------------------------------
 # Copyright (c) 2017 Massachusetts Institute of Technology (MIT)
 # All rights reserved.
@@ -106,10 +106,10 @@ def analyze_prc(zin,
     an_len=len(zin)/dec
     N = int(an_len / clen )
     res = np.zeros([N, Nranges], dtype=np.complex64)
-    if os.path.exists("waveforms/b-%d-%d.h5"%(station,Nranges)):
+    if not os.path.exists("waveforms/b-%d-%d.h5"%(station,Nranges)):
         os.system("mkdir -p waveforms")
         hb=h5py.File("waveforms/b-%d-%d.h5"%(station,Nranges),"r")
-        B=hb["B"].value
+        B=hb["B"][()]
         hb.close()
     else:
         r = create_estimation_matrix(code=code, cache=cache, rmax=Nranges)

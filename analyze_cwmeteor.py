@@ -15,7 +15,8 @@ rank = comm.Get_rank()
 
 code_len=1000
 #seeds=[2,9,814,4081,4399]
-seeds=[1,238,681,3099,3263]
+seeds=[8, 4195, 2660,   19,  344,   95]
+#seeds=[1,238,681,3099,3263]
 
 def bpsk(seed,length):
     print(seed)

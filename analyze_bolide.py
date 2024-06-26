@@ -11,6 +11,7 @@ import scipy.interpolate as sio
 import scipy.signal as ss
 import scipy.constants as sc
 import itertools
+from astropy.nddata import block_reduce
 
 comm = MPI.COMM_WORLD
 size = comm.Get_size()
@@ -58,40 +59,44 @@ def get_codes(int_f=8,
         # interpolate using a rectangular filter
         c0=n.repeat(c0,int_f)
         c0f=n.fft.ifft(n.fft.fft(c0)*W)
-        c0f=n.roll(c0f,-int_f/2)
+        print(int_f/2)
+        c0f=n.roll(c0f,-int(int_f/2))
         c0f=c0f/n.max(n.abs(c0f))    
         if plot_code:
-            plt.plot(c0f.real)
-            plt.plot(c0.real)
+            plt.plot(c0f.real,label="filtered")
+            plt.plot(c0.real,label="repeated")
+            plt.legend()
             plt.show()
         codes.append(n.tile(c0f,n_codes))
     return(codes)
     
 def range_doppler_matched_filter(d,
                                  out,
-                                 code_seeds=[1,238,681,3099,3263],
+                                 code_seeds=[8, 4195, 2660,   19,  344,   95], # simone norway 2023
                                  code_len=1000,
-                                 i0=158699892900000, # first index to analyze
-                                 i1=158699892900000, # last sample index to analyze
+                                 i0=169040892000000+50*100000, # first index to analyze
+                                 i1=169040892000000+60*100000, # last sample index to analyze
                                  int_f=4,   # range interpolation factor
                                             # this is  multiplied by two in the code
                                  n_codes=4, # number of codes to integrate coherently together
                                  sr=100e3,
                                  ignore_freq=250.0, # don't include Doppler shifts
                                                     # smaller than this
-                                 r_min_an=400,  # minimum range to analyze (km)
+                                 r_min_an=300,  # minimum range to analyze (km)
                                  r_max_an=600,   # maximum range to analyze (km)
-                                 f_min_an=-4e3, # minimum doppler to analyze (Hz)
-                                 f_max_an=1e3, # maximum doppler to analyze
+                                 f_min_an=-30e3, # minimum doppler to analyze (Hz)
+                                 f_max_an=30e3, # maximum doppler to analyze
                                  noise_bw=10e3, # receiver noise bandwidth
                                  codes_per_step=1, #
                                  rfi_remove=False,
                                  rx_channels=[0,1]
                                  ):
-    int_f=int_f*2
+    # force this to be one!
+    int_f=1
 
     codes=get_codes(int_f,code_len=code_len,seeds=code_seeds,n_codes=n_codes)
 
+    # range gate (one-way)
     dr = sc.c/sr/1e3
 
     c=d.get_channels()
@@ -103,7 +108,7 @@ def range_doppler_matched_filter(d,
     # frequency shifts 
     fvec=n.fft.fftshift(n.fft.fftfreq(int_f*n_codes*code_len,d=1/(int_f*sr)))
     
-    fidx=n.where(n.abs(fvec) < 1e3)[0]
+#    fidx=n.where(n.abs(fvec) < 1e3)[0]
 
     # one-way range (distance from transmitter to receiver)
     rvec=n.arange(r_max_an*int_f)*(dr/int_f)
@@ -121,11 +126,14 @@ def range_doppler_matched_filter(d,
     # range gates to analyze
     gridx=n.where( (rvec > r_min_an ) &(rvec < r_max_an))[0]
     rvec0=rvec[gridx]
+    print(rvec0)
 
     n_steps=int(n.floor((i1-i0)/(code_len*codes_per_step)))
+    print(n_steps)
 
     # figure out all correlations and cross-correlations
-    ch_pairs=list(itertools.combinations(n.arange(len(code_seeds),dtype=n.int),2))
+#    ch_pairs=list(itertools.combinations(n.arange(len(code_seeds),dtype=n.int),2))
+    ch_pairs=[]
     for i in range(len(code_seeds)):
         ch_pairs.append((i,i))
     ch_pairs = n.array(ch_pairs)
@@ -133,7 +141,8 @@ def range_doppler_matched_filter(d,
     
     # go through all time steps
     for si in range(rank,n_steps,size):
-        S=n.zeros([n_pairs,len(gridx),len(gfidx)],dtype=n.complex64)
+#        S=n.zeros([n_pairs,len(gridx),len(gfidx)],dtype=n.complex64)
+        S=n.zeros([len(gridx),len(gfidx)],dtype=n.float)
         
         read_idx=si*code_len*codes_per_step+i0
         read_len=n_codes*code_len+code_len
@@ -141,7 +150,11 @@ def range_doppler_matched_filter(d,
         # go through all rx channels 
         for chi in rx_channels:
             z0=d.read_vector_c81d(read_idx,read_len,c[chi])
-
+            z0=z0-n.median(z0)
+#            plt.plot(z0.real)
+ #           plt.plot(z0.imag)
+  #          plt.show()
+            
             if rfi_remove:
                 z0=rfi_rem(z0)
 
@@ -150,25 +163,28 @@ def range_doppler_matched_filter(d,
             z0=n.repeat(z0,int_f)
             wf=n.repeat(1.0/float(int_f),int_f)
             z0i=n.fft.ifft(n.fft.fft(z0)*n.fft.fft(wf,len(z0)))
-            z0i=n.roll(z0i,-int_f/2)
+            z0i=n.roll(z0i,-int(int_f/2))
 
             # go through all transmit code pairs
             for ci in range(n_pairs):
                 c0i=ch_pairs[ci,0]
                 c1i=ch_pairs[ci,1]
-                
+  #          for ci in range(len(code_seeds)):
                 # go through all range gates
                 for rii,ri in enumerate(gridx):
                     Z0=n.fft.fft(n.conj(codes[c0i])*z0i[ri+ridx])
                     Z1=n.fft.fft(n.conj(codes[c1i])*z0i[ri+ridx])
-                    S[ci,rii,:]+=n.fft.fftshift(Z0*n.conj(Z1))[gfidx]
-                    
-        # average over all XCs to obtain power estimate
-        S0=n.sqrt(n.mean(n.abs(S)**2.0,axis=0))
+                    S[rii,:]+=n.fft.fftshift(n.abs(Z0*n.conj(Z1)))[gfidx]
+
+        for fi in range(S.shape[1]):
+            S[:,fi]=(S[:,fi]-n.median(S[:,fi]))/n.std(S[:,fi])
         
-        noise_floor=n.median(S0)
+        # average over all XCs to obtain power estimate
+#        S0=n.sqrt(n.mean(n.abs(S)**2.0,axis=0))
+#        S0=S
+#        noise_floor=n.median(S0)
         # create signal_to_noise ratio estimate
-        snr=S0/noise_floor
+        snr=S#S0/noise_floor
 
         # create a copy 
         snr0=n.copy(snr)
@@ -176,34 +192,38 @@ def range_doppler_matched_filter(d,
         # because we are repeating the code, we are introducing some periodic
         # features in the range-doppler matched filter output.
         # gently try to filter these out using a 2d FFT
-        F=n.fft.fft2(snr0)
+#        F=n.fft.fft2(snr0)
 #        FA=n.abs(F)
  #       MFA=ss.medfilt2d(FA,21)
   #      plt.pcolormesh(10.0*n.log10(FA-MFA))
    #     plt.colorbar()
     #    plt.show()
         
-        for fri in range(F.shape[0]):
-            med_amp=n.median(n.abs(F[fri,:]))
-            bad_f_idx=n.where(n.abs(F[fri,:]) > 10.0*med_amp)[0]
-            F[fri,bad_f_idx]=0.0
-        snr0=n.abs(n.fft.ifft2(F))
+ #       for fri in range(F.shape[0]):
+  #          med_amp=n.median(n.abs(F[fri,:]))
+   #         bad_f_idx=n.where(n.abs(F[fri,:]) > 10.0*med_amp)[0]
+    #        F[fri,bad_f_idx]=0.0
+     #   snr0=n.abs(n.fft.ifft2(F))
         
 
     
         plt.figure(figsize=(16,9))
-#        n_floor=n.median(snr0)
- #       snr0=snr0-n_floor
-  #      snr0=snr0/n.median(n.abs(snr0))
-
-        plt.pcolormesh(fvec0,rvec0,snr0,vmin=-2,vmax=20.0,cmap="inferno")
+        #        n_floor=n.median(snr0)
+        #       snr0=snr0-n_floor
+        #      snr0=snr0/n.median(n.abs(snr0))
+#        snrm=block_reduce(snr0,(1,2),func=n.max)
+ #       print(snrm.shape)
+        snrm=snr0        
+  
+        plt.pcolormesh(snrm,vmin=-2,vmax=20.0,cmap="inferno")
         plt.title("%s\n"%(stuffr.unix2datestr(read_idx/sr)))
-        plt.xlim([f_min_an,f_max_an])
-        plt.ylim([r_min_an,r_max_an])
+#        plt.xlim([f_min_an,f_max_an])
+ #       plt.ylim([r_min_an,r_max_an])
         plt.xlabel("Doppler shift (Hz)")
         plt.ylabel("Transmitter to receiver range (km)")
         plt.colorbar()
         plt.tight_layout()
+#        plt.show()
         plt.savefig("%s/rd-%06d.png"%(out,read_idx))
         plt.clf()
         plt.close()
@@ -288,7 +308,29 @@ def santa_rosa():
                                  
 #                                 i0=158699892000000,
  #                                i1=158699894000000)
-    
-an_azpitia()
-santa_rosa()
-huancayo()
+
+def saura():
+    # santa rosa
+    range_doppler_matched_filter(d=drf.DigitalRFReader("/data0/interstellar_2023/And-Sau/"),
+                                 out="/data0/interstellar_2023/saura_head",
+                                 r_min_an=0,
+                                 r_max_an=700,
+                                 n_codes=50,
+                                 int_f=1,                        
+                                 rx_channels=[0], # channel 0 is busted
+                                 rfi_remove=False, # santa rosa has tons of rfi
+                                 f_min_an=-400,
+                                 f_max_an=400,
+                                 codes_per_step=50,
+                                 i0=169040892000000+49*100000,
+                                 i1=169040892000000+60*100000)
+
+
+saura()
+
+ 
+#an_azpitia()
+#santa_rosa()
+#huancayo()
+
+
