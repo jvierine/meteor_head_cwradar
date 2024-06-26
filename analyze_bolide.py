@@ -326,7 +326,8 @@ def saura():
                                  i1=169040892000000+60*100000)
 
 
-saura()
+if __name__ == "__main__":
+    saura()
 
  
 #an_azpitia()

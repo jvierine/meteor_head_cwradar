@@ -2,6 +2,12 @@ import h5py
 import numpy as n
 import matplotlib.pyplot as plt
 import analyze_bolide as ab
+from mpi4py import MPI
+
+comm = MPI.COMM_WORLD
+size = comm.Get_size()
+rank = comm.Get_rank()
+print("comm rank %d size %d"%(rank,size))
 
 receivers = [ 'IS', 'NA', 'SV','WS','LA','KH']
 tx_name = 'NM'
@@ -13,7 +19,7 @@ nm_rx_gps = [
       [34.3491, -106.886, 1478.9],    #   SV: SEVILLETA:
       [33.7204, -106.739, 1473.6],    #   SW:  WSMR:   
       [35.8701, -106.326, 2272],      #   LA: LOS ALAMOS:
-      [35.0698, -106.29, 2274.8]      #    KH KEN'S HOUSE:
+      [35.0698, -106.29, 2274.8]      #   KH KEN'S HOUSE:
     ]
 
 tx_ant = [
@@ -90,16 +96,19 @@ def decimate(a,declen=10):
 #plt.plot(b)
 #plt.show()
 
-def range_doppler_matched_filter(fname,
-                                 rg=[50,120],
-                                 i0=3400*1000,
-                                 i1=4000*1000,
-                                 step=100,
-                                 interp_len=10,
-                                 fftlen=4000,
+def range_doppler_matched_filter(fname,        # data file name
+                                 rg=[50,120],  # range ranges to analyze (in data samples)
+                                 i0=3500*1000, # first sample to process
+                                 i1=3900*1000, # last sample to process
+                                 step=250,     # how many samples to step in time
+                                 interp_len=4, # interpolation factor for sub sample delay search
+                                 fftlen=8192,  # how many fft points for doppler search
+                                 fftdec=2,     # reduce fft bandwidth by interp_len*fftdec
                                  plot=False,
                                  plot_file="tmp.png",
-                                 title="Range-doppler MF"
+                                 title="Range-doppler MF",
+                                 use_spline=False,
+                                 remove_spikes=True
                                  ):
     """
     range-doppler matched filter
@@ -107,7 +116,24 @@ def range_doppler_matched_filter(fname,
     """
     
     h=h5py.File(fname,"r")
-    z=n.repeat(h["rf_data"][()][:,0],interp_len)
+    
+    
+    # interpolate received signal to a higher sample-rate
+    zo=h["rf_data"][()][:,0]
+
+    tidx0 = h["rf_data_index"][()][0,0]
+    
+    use_spline=False
+    if use_spline:
+        import scipy.interpolate as sint
+        x=n.arange(len(zo))+0.5
+        x[0]-=1
+        x[-1]+=1
+        xi=n.arange(len(zo)*interp_len)/interp_len+0.5/interp_len
+        zf=sint.interp1d(x,zo)
+        z=zf(xi)
+    else:
+        z=n.repeat(zo,interp_len)
 
     code_len=1000
     codes=ab.get_codes(interp_len,code_len=code_len,seeds=seed,n_codes=1)
@@ -130,9 +156,10 @@ def range_doppler_matched_filter(fname,
 
     P=n.zeros([n_window,n_rg],dtype=n.float32)
     # doppler shifts
-    freqs=n.fft.fftfreq(fftlen,d=1/(100e3))
+    freqs=n.fft.fftfreq(fftlen,d=1/(100e3/fftdec))
     dopvel=3e8*freqs/2/32.8e6
-    D=n.zeros([n_window,n_rg],dtype=n.float32)    
+    D=n.zeros([n_window,n_rg],dtype=n.float32)
+    D_Hz=n.zeros([n_window,n_rg],dtype=n.float32)    
     
     for i in range(n_window):
         print(i,n_window)
@@ -141,21 +168,27 @@ def range_doppler_matched_filter(fname,
         # record transmit time for this window
         tx_idx.append(idx0/interp_len)
         for rgi in range(n_rg):
+            # range shifted echo
             echo = z[ (idx0+rgs_interp[rgi]):(idx0+code_len*interp_len + rgs_interp[rgi]) ]
+            
             # notch spikes to zero
-            abs_echo=n.abs(echo)
-            noise_std_est=n.nanmedian(abs_echo)
-            echo[abs_echo>(3*noise_std_est)]=0.0
+            if remove_spikes:
+                abs_echo=n.abs(echo)
+                noise_std_est=n.nanmedian(abs_echo)
+                echo[abs_echo>(3*noise_std_est)]=0.0
             
             # allow sub code length steps!
             DP=n.zeros(fftlen,dtype=n.float32)
             for ci in range(len(codes)):
+                # what was transmitted for this echo?
                 code = repcodes[ci][(idx0):(idx0+code_len*interp_len)]
-                DP+=n.abs(n.fft.fft(decimate(echo*n.conj(code),interp_len),fftlen))**2.0
+                # average the doppler spectrum for all codes
+                DP+=n.abs(n.fft.fft(decimate(echo*n.conj(code),fftdec*interp_len),fftlen))**2.0
                 
             # record the doppler shift
             dopidx=n.argmax(DP)                
             D[i,rgi]=dopvel[dopidx]
+            D_Hz[i,rgi]=freqs[dopidx]
             P[i,rgi]=DP[dopidx]
 
     dB=10*n.log10(P.T)
@@ -164,11 +197,13 @@ def range_doppler_matched_filter(fname,
     vlow,vhigh=n.percentile(dB.flatten(), [25 ,90])
     ho=h5py.File("%s.h5"%(plot_file),"w")
     ho["tx_idx"]=tx_idx
+    ho["tidx0"]=tidx0
     ho["tx_ts"]=tx_ts
     ho["rgs"]=rgs_interp
     ho["interp"]=interp_len
     ho["P"]=P
-    ho["D"]=D
+    ho["D_Hz"]=D_Hz
+    ho["D"]=D    
     ho.close()
     if plot:
         fig=plt.figure(figsize=(20,10))
@@ -205,20 +240,30 @@ if __name__ == "__main__":
         overview("/data0/simone-nm/raw_data/WS/CH001/rf@1705582560.000.h5",title="WS1",plot_file="o_ws1.png")
 
     
-    ps={}
-    # IS is pure noise. not usable
-    #ps["IS0"]=range_doppler_matched_filter("/data0/simone-nm/raw_data/IS/CH000/rf@1705582560.000.h5",plot=True)
-    #ps["IS1"]=range_doppler_matched_filter("/data0/simone-nm/raw_data/IS/CH001/rf@1705582560.000.h5",plot=True)
+    pars=[
+        {"fname":"/data0/simone-nm/raw_data/NA/CH000/rf@1705582560.000.h5",
+         "title":"NA0",
+         "plot_file":"rd_na0.png"},
+        {"fname":"/data0/simone-nm/raw_data/NA/CH001/rf@1705582560.000.h5",
+         "title":"NA1",
+         "plot_file":"rd_na1.png"},
+        {"fname":"/data0/simone-nm/raw_data/SV/CH000/rf@1705582560.000.h5",
+         "title":"SV0",
+         "plot_file":"rd_sv0.png"},
+        {"fname":"/data0/simone-nm/raw_data/SV/CH001/rf@1705582560.000.h5",
+         "title":"SV1",
+         "plot_file":"rd_sv1.png"},
+        {"fname":"/data0/simone-nm/raw_data/WS/CH000/rf@1705582560.000.h5",
+         "title":"WS0",
+         "plot_file":"rd_ws0.png"},
+        {"fname":"/data0/simone-nm/raw_data/WS/CH001/rf@1705582560.000.h5",
+         "title":"WS1",
+         "plot_file":"rd_ws1.png"},
+    ]
 
-    ps["NA0"]=range_doppler_matched_filter("/data0/simone-nm/raw_data/NA/CH000/rf@1705582560.000.h5",plot=True,title="NA0",plot_file="rd_na0.png")
-    ps["NA1"]=range_doppler_matched_filter("/data0/simone-nm/raw_data/NA/CH001/rf@1705582560.000.h5",plot=True,title="NA1",plot_file="rd_na1.png")
-        
-
-    ps["SV0"]=range_doppler_matched_filter("/data0/simone-nm/raw_data/SV/CH000/rf@1705582560.000.h5",plot=True,title="SV0",plot_file="rd_sv0.png")
-    ps["SV1"]=range_doppler_matched_filter("/data0/simone-nm/raw_data/SV/CH001/rf@1705582560.000.h5",plot=True,title="SV1",plot_file="rd_sv1.png")
-
-    ps["WS0"]=range_doppler_matched_filter("/data0/simone-nm/raw_data/WS/CH000/rf@1705582560.000.h5",plot=True,title="WS0",plot_file="rd_ws0.png")
-    ps["WS1"]=range_doppler_matched_filter("/data0/simone-nm/raw_data/WS/CH001/rf@1705582560.000.h5",plot=True,title="WS1",plot_file="rd_ws1.png")
+    for pi in range(rank,len(pars),size):
+        p=pars[pi]
+        ps=range_doppler_matched_filter(p["fname"],plot=True,title=p["title"],plot_file=p["plot_file"])
 
 
     
