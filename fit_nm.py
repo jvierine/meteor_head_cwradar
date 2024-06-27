@@ -4,6 +4,9 @@ import h5py
 import scipy.constants as c
 import analyze_nm as nm
 import jcoord
+import fastecef2h 
+
+
 
 import cartopy.crs as ccrs
 from datetime import datetime
@@ -11,6 +14,10 @@ from cartopy.feature.nightshade import Nightshade
 import cartopy.feature as cfeature
 
 p_tx=jcoord.geodetic2ecef(nm.tx_gps[0],nm.tx_gps[1],nm.tx_gps[2])
+
+p_0=jcoord.geodetic2ecef(nm.tx_gps[0],nm.tx_gps[1],100e3)
+ecef2h=fastecef2h.get_fastecef2h(p_0)
+
 p_na=jcoord.geodetic2ecef(nm.nm_rx_gps[1][0],
                           nm.nm_rx_gps[1][1],
                           nm.nm_rx_gps[1][2])
@@ -178,6 +185,9 @@ def simple_trajectory_fit(tna,
         
     
     return(poss,llhs,vx,vy,vz,ts,p0_est,v0_est)
+
+
+
 
 
 
