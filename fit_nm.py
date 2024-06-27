@@ -4,7 +4,9 @@ import h5py
 import scipy.constants as c
 import analyze_nm as nm
 import jcoord
-import fastecef2h 
+#import fastecef2h
+
+import meteor_trajectory_fit as tf
 
 
 
@@ -15,8 +17,8 @@ import cartopy.feature as cfeature
 
 p_tx=jcoord.geodetic2ecef(nm.tx_gps[0],nm.tx_gps[1],nm.tx_gps[2])
 
-p_0=jcoord.geodetic2ecef(nm.tx_gps[0],nm.tx_gps[1],100e3)
-ecef2h=fastecef2h.get_fastecef2h(p_0)
+#p_0=jcoord.geodetic2ecef(nm.tx_gps[0],nm.tx_gps[1],100e3)
+#ecef2h=fastecef2h.get_fastecef2h(p_0)
 
 p_na=jcoord.geodetic2ecef(nm.nm_rx_gps[1][0],
                           nm.nm_rx_gps[1][1],
@@ -187,8 +189,173 @@ def simple_trajectory_fit(tna,
     return(poss,llhs,vx,vy,vz,ts,p0_est,v0_est)
 
 
+def forward_model_meas3(p0,  # meteor position initially
+                        v0,  # meteor velocity initially
+                        tm0,tm1,tm2, # measurement times
+                        p_tx,        # transmit positoin
+                        p_rx0,p_rx1,p_rx2,  # receiver positions
+                        rho_m_r=0.1,plot=False,
+                        rho_m=1000):
+
+    all_time=n.concatenate([tm0,tm1,tm2])
+    t0=n.min(all_time)
+    max_time=n.max(all_time)-n.min(all_time)
+    
+    m_t, m_p, m_u=tf.forward_model(p0=p0,
+                                   v0=v0,
+                                   plot=plot,
+                                   max_t=max_time+10e-3,
+                                   rho_m_r=rho_m_r)
+    
+    import scipy.interpolate as interp
+    
+    posfun_x=interp.interp1d(m_t, m_p[:,0])
+    posfun_y=interp.interp1d(m_t, m_p[:,1])
+    posfun_z=interp.interp1d(m_t, m_p[:,2])
+    dt=1e-3
+    model_pos0=n.vstack([posfun_x(tm0-t0),posfun_y(tm0-t0),posfun_z(tm0-t0)])
+    model_pos0_dt=n.vstack([posfun_x(tm0-t0+dt),posfun_y(tm0-t0+dt),posfun_z(tm0-t0+dt)])
+    
+    model_pos1=n.vstack([posfun_x(tm1-t0),posfun_y(tm1-t0),posfun_z(tm1-t0)])
+    model_pos1_dt=n.vstack([posfun_x(tm1-t0+dt),posfun_y(tm1-t0+dt),posfun_z(tm1-t0+dt)])
+    
+    model_pos2=n.vstack([posfun_x(tm2-t0),posfun_y(tm2-t0),posfun_z(tm2-t0)])
+    model_pos2_dt=n.vstack([posfun_x(tm2-t0+dt),posfun_y(tm2-t0+dt),posfun_z(tm2-t0+dt)])
+
+    # distance from meteor to transmitter
+    dist_tx_meteor0 = n.linalg.norm(p_tx[:,None]-model_pos0,axis=0)
+    dist_meteor_rx0 = n.linalg.norm(p_rx0[:,None]-model_pos0,axis=0)
+
+    dist_tx_meteor0_dt = n.linalg.norm(p_tx[:,None]-model_pos0_dt,axis=0)
+    dist_meteor_rx0_dt = n.linalg.norm(p_rx0[:,None]-model_pos0_dt,axis=0)
+
+    dist_tx_meteor1 = n.linalg.norm(p_tx[:,None]-model_pos1,axis=0)
+    dist_meteor_rx1 = n.linalg.norm(p_rx1[:,None]-model_pos1,axis=0)
+
+    dist_tx_meteor1_dt = n.linalg.norm(p_tx[:,None]-model_pos1_dt,axis=0)
+    dist_meteor_rx1_dt = n.linalg.norm(p_rx1[:,None]-model_pos1_dt,axis=0)
+
+    
+    dist_tx_meteor2 = n.linalg.norm(p_tx[:,None]-model_pos2,axis=0)
+    dist_meteor_rx2 = n.linalg.norm(p_rx2[:,None]-model_pos2,axis=0)
+
+    dist_tx_meteor2_dt = n.linalg.norm(p_tx[:,None]-model_pos2_dt,axis=0)
+    dist_meteor_rx2_dt = n.linalg.norm(p_rx2[:,None]-model_pos2_dt,axis=0)
+
+    dop0=((dist_tx_meteor0_dt+dist_meteor_rx0_dt) - (dist_tx_meteor0+dist_meteor_rx0))/nm.tx_wavelength/dt
+    dop1=((dist_tx_meteor1_dt+dist_meteor_rx1_dt) - (dist_tx_meteor1+dist_meteor_rx1))/nm.tx_wavelength/dt
+    dop2=((dist_tx_meteor2_dt+dist_meteor_rx2_dt) - (dist_tx_meteor2+dist_meteor_rx2))/nm.tx_wavelength/dt
+    
+    return(dist_tx_meteor0+dist_meteor_rx0,
+           dist_tx_meteor1+dist_meteor_rx1,
+           dist_tx_meteor2+dist_meteor_rx2,
+           dop0,dop1,dop2)
 
 
+def msis_meteor_fit(p0_est,
+                    v0_est,
+                    tna,
+                    tws,
+                    tsv,
+                    rna,
+                    rws,
+                    rsv,
+                    dna,
+                    dws,
+                    dsv,
+                    p_tx,
+                    p_na,
+                    p_ws,
+                    p_sv,plot=False):
+    """
+    fit with msis
+    """ 
+
+    def ss(x):
+        p0 = x[0:3]
+        v0 = x[3:6]
+        rho_m_r=x[6]
+        model_rna,model_rws,model_rsv,model_dna,model_dws,model_dsv, = forward_model_meas3(p0,v0,
+                                                                                           tna,tws,tsv,
+                                                                                           p_tx,
+                                                                                           p_na,p_ws,p_sv,
+                                                                                           rho_m_r=rho_m_r,plot=plot,
+                                                                                           rho_m=1000)
+
+        s=0.0
+        s+=n.sum(n.abs(model_rna-rna)**2.0)
+        s+=n.sum(n.abs(model_rws-rws)**2.0)
+        s+=n.sum(n.abs(model_rsv-rsv)**2.0)
+        dopw=1e-3
+        s+=dopw*n.sum(n.abs(model_dna-dna)**2.0)
+        s+=dopw*n.sum(n.abs(model_dws-dws)**2.0)
+        s+=dopw*n.sum(n.abs(model_dsv-dsv)**2.0)
+        print(s)
+        if plot:
+            plt.subplot(121)
+            plt.plot(tna,rna,".",color="C0",label="NA")
+            plt.plot(tna,model_rna,color="C0")
+            plt.plot(tws,rws,".",color="C1",label="WS")
+            plt.plot(tws,model_rws,color="C1")
+            plt.plot(tsv,rsv,".",color="C2",label="SV")
+            plt.plot(tsv,model_rsv,color="C2")
+            plt.legend()
+            plt.xlabel("Time (s)")
+            plt.ylabel("Propagation distance (km)")
+            plt.subplot(122)
+            plt.plot(tna,dna,".",label="NA")
+            plt.plot(tna,model_dna)
+            plt.plot(tws,dws,".",label="WS")
+            plt.plot(tws,model_dws)
+            plt.plot(tsv,dsv,".",label="SV")
+            plt.plot(tsv,model_dsv)
+            plt.legend()
+            plt.xlabel("Time (s)")
+            plt.ylabel("Doppler-shift (Hz)")
+            plt.tight_layout()
+            plt.show()
+        return(s)
+    import scipy.optimize as sio
+    x0=n.zeros(7)
+    x0[0:3]=p0_est
+    x0[3:6]=v0_est
+    x0[6]=0.1
+    xhat=sio.fmin(ss,x0)
+    # plot the best fit
+    plot=True
+    ss(xhat)
+    print(xhat)
+
+    all_time=n.concatenate([tna,tws,tsv])
+    t0=n.min(all_time)
+    max_time=n.max(all_time)-n.min(all_time)
+
+    m_t, m_p, m_u=tf.forward_model(p0=xhat[0:3],
+                                   v0=xhat[3:6],
+                                   plot=True,
+                                   max_t=max_time,
+                                   rho_m_r=xhat[6])
+    
+    llhs=[]
+    
+    for i in range(len(m_t)):
+        llh=jcoord.ecef2geodetic(m_p[i,0],m_p[i,1],m_p[i,2])
+        print(llh)
+        llhs.append(llh)
+        
+    llhs=n.array(llhs)
+    print("position %1.1f,%1.1f,%1.1f (ECEF meters) velocity %1.1f,%1.1f,%1.1f (ECEF m/s) epoch %1.2f (unix)"%(xhat[0],xhat[1],xhat[2],xhat[3],xhat[4],xhat[5],t0))
+    print(llhs.shape)
+    
+    plt.subplot(121)
+    plt.plot(llhs[:,1],llhs[:,0])
+    plt.xlabel("Longitude (deg)")
+    plt.ylabel("Latitude (deg)")
+    plt.subplot(122)
+    plt.plot(m_t+t0,llhs[:,2]/1e3)
+    plt.xlabel("Time (unix)")
+    plt.ylabel("Altitude (km)")
+    plt.show()
 
 
 def fit_trajectory():
@@ -198,6 +365,21 @@ def fit_trajectory():
     tsv,rsv,dsv,ssv=get_head_echo("rd_sv0.png.h5")
 
     poss, llhs, vx, vy, vz, ts, p0_est, v0_est = simple_trajectory_fit(tna,tws,tsv,rna,rws,rsv)
+
+    msis_meteor_fit(p0_est,
+                    v0_est,
+                    tna,
+                    tws,
+                    tsv,
+                    rna,
+                    rws,
+                    rsv,
+                    dna,dws,dsv,
+                    p_tx,
+                    p_na,
+                    p_ws,
+                    p_sv)
+    
     print(v0_est)
     print(n.linalg.norm(v0_est))
 

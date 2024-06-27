@@ -3,6 +3,7 @@ import numpy as n
 import matplotlib.pyplot as plt
 import analyze_bolide as ab
 from mpi4py import MPI
+import scipy.constants as c
 
 comm = MPI.COMM_WORLD
 size = comm.Get_size()
@@ -32,6 +33,9 @@ tx_ant = [
 ]
 
 tx_gps = [35.002, -106.526, 1674.8]
+
+tx_freq=32.8e6
+tx_wavelength=c.c/tx_freq
       
 
 def overview(fname="/data0/simone-nm/raw_data/NA/CH000/rf@1705582560.000.h5",
