@@ -22,7 +22,8 @@ p_ws=jcoord.geodetic2ecef(nm.nm_rx_gps[3][0],
                           nm.nm_rx_gps[3][2])
 
 
-def get_head_echo(fname="rd_na0.png.h5",plot=False):
+def get_head_echo(fname="rd_na0.png.h5",
+                  plot=False):
 
     h=h5py.File(fname,"r")
     print(h.keys())
@@ -60,16 +61,13 @@ def get_head_echo(fname="rd_na0.png.h5",plot=False):
     for i in range(P.shape[0]):
         rgmax=n.argmax(P_masked[i,:])
 
-        if P_masked[i,rgmax] > 1.2:
+        if P_masked[i,rgmax] > 1.05:
             rgs.append(rgs_m[rgmax])
             dops.append(D_Hz[i,rgmax])
             snrs.append(P_masked[i,rgmax])
             tms.append(tx_idx[i])
 
-
     if plot:
-
-
         plt.subplot(121)
         plt.pcolormesh(tx_idx,rgs_m,P_masked.T,vmin=0,vmax=2)
         plt.plot(tms,rgs,"x")
@@ -98,6 +96,9 @@ def polyfit(t,r):
 
 
 def fit_pos(rna,rws,rsv):
+    """
+    Given three ranges between transmit and receive, find position in ECEF
+    """
     rs=n.array([rna,rws,rsv])
     def ss(x):
         txdist=n.linalg.norm(x-p_tx)
@@ -106,21 +107,21 @@ def fit_pos(rna,rws,rsv):
         mrsv=txdist + n.linalg.norm(p_sv-x)
         model_range=n.array([mrna,mrws,mrsv])
         s=n.sum(n.abs(rs-model_range)**2.0 )
-        print(s)
-        
         return(s)
+    
     import scipy.optimize as so
     xhat=so.fmin(ss,p_tx)
     print(xhat)
     return(xhat)
 
 
-def fit_trajectory():
-    tna,rna,dna,sna=get_head_echo("rd_na0.png.h5")
-    tws,rws,dws,sws=get_head_echo("rd_ws1.png.h5")
-    tsv,rsv,dsv,ssv=get_head_echo("rd_sv0.png.h5")
-
-    
+def simple_trajectory_fit(tna,
+                          tws,
+                          tsv,
+                          rna,
+                          rws,
+                          rsv,
+                          plot=True):
     # initial fit just based on time delays
     # interpolate also to get the same time for all three links
     # fit polynomial for range
@@ -133,6 +134,7 @@ def fit_trajectory():
     ts=n.linspace(tmin,tmax,num=50)
     poss=[]
     llhs=[]
+    
     for i in range(len(ts)):
         pos=fit_pos(rnafun(ts[i]),
                     rwsfun(ts[i]),
@@ -140,14 +142,54 @@ def fit_trajectory():
         llh=jcoord.ecef2geodetic(pos[0],pos[1],pos[2])
         llhs.append(llh)
         poss.append(pos)
+        
     poss=n.array(poss)
     llhs=n.array(llhs)
-
+    
     dt=n.diff(ts)[0]
     print(dt)
     vx=n.gradient(poss[:,0],dt)
     vy=n.gradient(poss[:,1],dt)
     vz=n.gradient(poss[:,2],dt)
+
+    p0_est = poss[0,:]
+    v0_est = (poss[-1,:]-poss[0,:])/(ts[-1]-ts[0])
+
+    if plot:
+ #       plt.subplot(221)
+        plt.plot(tna,rna/1e3,".",label="NA")
+        plt.plot(tna,rnafun(tna)/1e3)
+        plt.plot(tws,rws/1e3,".",label="WS")
+        plt.plot(tws,rwsfun(tws)/1e3)
+        plt.plot(tsv,rsv/1e3,".",label="SV")
+        plt.plot(tsv,rsvfun(tsv)/1e3)
+        plt.legend()
+        plt.xlabel("Time (unix)")
+        plt.ylabel("Range (km)")
+#        plt.subplot(222)
+#        plt.plot(tna,dna,".")
+#        plt.plot(tws,dws,".")
+#        plt.plot(tsv,dsv,".")
+#        plt.subplot(223)
+#        plt.plot(tna,sna,".")
+#        plt.plot(tws,sws,".")
+#        plt.plot(tsv,ssv,".")
+        plt.show()
+        
+    
+    return(poss,llhs,vx,vy,vz,ts,p0_est,v0_est)
+
+
+
+def fit_trajectory():
+    # extract the range, doppler and snr of the head echo
+    tna,rna,dna,sna=get_head_echo("rd_na0.png.h5")
+    tws,rws,dws,sws=get_head_echo("rd_ws1.png.h5")
+    tsv,rsv,dsv,ssv=get_head_echo("rd_sv0.png.h5")
+
+    poss, llhs, vx, vy, vz, ts, p0_est, v0_est = simple_trajectory_fit(tna,tws,tsv,rna,rws,rsv)
+    print(v0_est)
+    print(n.linalg.norm(v0_est))
 
     plt.subplot(131)
     plt.plot(llhs[:,1],llhs[:,0])
@@ -168,7 +210,7 @@ def fit_trajectory():
     fig = plt.figure(figsize=[8, 6.4])
     ax = fig.add_subplot( 1,1, 1, projection=ccrs.Orthographic(nm.tx_gps[1], nm.tx_gps[0]))
     data_projection = ccrs.PlateCarree()
-    this_frame_date=datetime.utcfromtimestamp(tmin)
+    this_frame_date=datetime.utcfromtimestamp(n.min(tna))
     ax.coastlines(zorder=3)
     ax.stock_img()
     ax.gridlines()
@@ -191,21 +233,5 @@ def fit_trajectory():
     cb.set_label("Altitude (km)")
     plt.show()
     
-    plt.subplot(221)
-    plt.plot(tna,rna,".")
-    plt.plot(tna,rnafun(tna))
-    plt.plot(tws,rws,".")
-    plt.plot(tws,rwsfun(tws))
-    plt.plot(tsv,rsv,".")
-    plt.plot(tsv,rsvfun(tsv))
-    plt.subplot(222)
-    plt.plot(tna,dna,".")
-    plt.plot(tws,dws,".")
-    plt.plot(tsv,dsv,".")
-    plt.subplot(223)
-    plt.plot(tna,sna,".")
-    plt.plot(tws,sws,".")
-    plt.plot(tsv,ssv,".")
-    plt.show()
 
 fit_trajectory()

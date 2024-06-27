@@ -101,7 +101,7 @@ def range_doppler_matched_filter(fname,        # data file name
                                  i0=3500*1000, # first sample to process
                                  i1=3900*1000, # last sample to process
                                  step=250,     # how many samples to step in time
-                                 interp_len=4, # interpolation factor for sub sample delay search
+                                 interp_len=10, # interpolation factor for sub sample delay search
                                  fftlen=8192,  # how many fft points for doppler search
                                  fftdec=2,     # reduce fft bandwidth by interp_len*fftdec
                                  plot=False,
@@ -123,7 +123,7 @@ def range_doppler_matched_filter(fname,        # data file name
 
     tidx0 = h["rf_data_index"][()][0,0]
     
-    use_spline=False
+#    use_spline=
     if use_spline:
         import scipy.interpolate as sint
         x=n.arange(len(zo))+0.5
