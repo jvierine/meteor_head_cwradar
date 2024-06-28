@@ -58,8 +58,6 @@ def overview(fname="/data0/simone-nm/raw_data/NA/CH000/rf@1705582560.000.h5",
 
     z=n.repeat(zo,interp_len)
 
-    print(z.shape)
-
     code_len=1000
     codes=ab.get_codes(interp_len,code_len=code_len,seeds=seed,n_codes=1)
     codes_f=[]
@@ -100,14 +98,15 @@ def decimate(a,declen=10):
 #plt.plot(b)
 #plt.show()
 
-def range_doppler_matched_filter(fname,        # data file name
-                                 rg=[50,120],  # range ranges to analyze (in data samples)
-                                 i0=3500*1000, # first sample to process
-                                 i1=3900*1000, # last sample to process
-                                 step=250,     # how many samples to step in time
+def range_doppler_matched_filter(fname,         # data file name
+                                 rg=[50,120],   # range ranges to analyze (in data samples)
+                                 i0=3500*1000,  # first sample to process
+                                 i1=3900*1000,  # last sample to process
+                                 step=250,      # how many samples to step in time
                                  interp_len=10, # interpolation factor for sub sample delay search
-                                 fftlen=8192,  # how many fft points for doppler search
-                                 fftdec=2,     # reduce fft bandwidth by interp_len*fftdec
+                                 fftlen=4096*2, # how many fft points for doppler search
+                                 fftdec=2,      # reduce fft bandwidth by interp_len*fftdec
+                                 n_codes = 1,   # how many codes are analyzed together
                                  plot=False,
                                  plot_file="tmp.png",
                                  title="Range-doppler MF",
@@ -160,10 +159,15 @@ def range_doppler_matched_filter(fname,        # data file name
 
     P=n.zeros([n_window,n_rg],dtype=n.float32)
     # doppler shifts
+    if fftlen < (n_codes*code_len/fftdec):
+        fftlen=(n_codes*code_len/fftdec)
+        print("adjusting fftlen to %d"%(fftlen))
+        
     freqs=n.fft.fftfreq(fftlen,d=1/(100e3/fftdec))
     dopvel=3e8*freqs/2/32.8e6
     D=n.zeros([n_window,n_rg],dtype=n.float32)
     D_Hz=n.zeros([n_window,n_rg],dtype=n.float32)    
+
     
     for i in range(n_window):
         print(i,n_window)
@@ -173,7 +177,7 @@ def range_doppler_matched_filter(fname,        # data file name
         tx_idx.append(idx0/interp_len)
         for rgi in range(n_rg):
             # range shifted echo
-            echo = z[ (idx0+rgs_interp[rgi]):(idx0+code_len*interp_len + rgs_interp[rgi]) ]
+            echo = z[ (idx0+rgs_interp[rgi]):(idx0+n_codes*code_len*interp_len + rgs_interp[rgi]) ]
             
             # notch spikes to zero
             if remove_spikes:
@@ -185,7 +189,7 @@ def range_doppler_matched_filter(fname,        # data file name
             DP=n.zeros(fftlen,dtype=n.float32)
             for ci in range(len(codes)):
                 # what was transmitted for this echo?
-                code = repcodes[ci][(idx0):(idx0+code_len*interp_len)]
+                code = repcodes[ci][(idx0):(idx0+n_codes*code_len*interp_len)]
                 # average the doppler spectrum for all codes
                 DP+=n.abs(n.fft.fft(decimate(echo*n.conj(code),fftdec*interp_len),fftlen))**2.0
                 
