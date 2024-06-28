@@ -251,6 +251,15 @@ def forward_model_meas3(p0,  # meteor position initially
            dist_tx_meteor2+dist_meteor_rx2,
            dop0,dop1,dop2)
 
+def correlation_from_covariance(covariance):
+    """
+    from github.com/wiso
+    """
+    v = n.sqrt(n.diag(covariance))
+    outer_v = n.outer(v, v)
+    correlation = covariance / outer_v
+    correlation[covariance == 0] = 0
+    return(correlation)
 
 def msis_meteor_fit(p0_est,
                     v0_est,
@@ -266,34 +275,120 @@ def msis_meteor_fit(p0_est,
                     p_tx,
                     p_na,
                     p_ws,
-                    p_sv,plot=False):
+                    p_sv,
+                    plot=False,
+                    ofname="meteor_fit.h5",
+                    overlap_factor=4): # how much do the measurements overlap (4 means that 1/4 th of a code length time step)
     """
-    fit with msis
-    """ 
-
+    fit with msis atmospheric density for drag
+    """
+    calc_cov=False
+    fix_rho_m_r=False 
+    fixed_rho_m_r=0.1
+    C=None
     def ss(x):
+        global C
         p0 = x[0:3]
         v0 = x[3:6]
         rho_m_r=x[6]
+        if fix_rho_m_r:
+            rho_m_r=fixed_rho_m_r
+            
         model_rna,model_rws,model_rsv,model_dna,model_dws,model_dsv, = forward_model_meas3(p0,v0,
                                                                                            tna,tws,tsv,
                                                                                            p_tx,
                                                                                            p_na,p_ws,p_sv,
                                                                                            rho_m_r=rho_m_r,plot=plot,
                                                                                            rho_m=1000)
-
+        
+                
+            
+            
         s=0.0
         s+=n.sum(n.abs(model_rna-rna)**2.0)
         s+=n.sum(n.abs(model_rws-rws)**2.0)
         s+=n.sum(n.abs(model_rsv-rsv)**2.0)
-        dopw=1e-3
-        s+=dopw*n.sum(n.abs(model_dna-dna)**2.0)
-        s+=dopw*n.sum(n.abs(model_dws-dws)**2.0)
-        s+=dopw*n.sum(n.abs(model_dsv-dsv)**2.0)
-        print(s)
+        # weight the doppler down by this factor
+        dopw=1e-2
+        dsumna=n.abs(model_dna-dna)**2.0
+        s+=dopw*n.sum(dsumna)
+        dsumws=n.abs(model_dws-dws)**2.0
+        s+=dopw*n.sum(dsumws)
+        dsumsv=n.abs(model_dsv-dsv)**2.0
+        s+=dopw*n.sum(dsumsv)
+
+        # estimate error standard deviation
+        na_std=n.std(model_rna-rna)*n.sqrt(overlap_factor)
+        ws_std=n.std(model_rws-rws)*n.sqrt(overlap_factor)
+        sv_std=n.std(model_rsv-rsv)*n.sqrt(overlap_factor)
+        dna_std=n.std(model_dna-dna)*n.sqrt(overlap_factor)
+        dws_std=n.std(model_dws-dws)*n.sqrt(overlap_factor)
+        dsv_std=n.std(model_dsv-dsv)*n.sqrt(overlap_factor)
+
+        if calc_cov:
+            n_meas=2*len(tna)+2*len(tws)+2*len(tsv)
+            n_par=len(x)
+            J=n.zeros([n_meas,n_par])
+            dpar=[100,100,100,100,100,100,1]
+            for i in range(len(x)):
+                x2=n.copy(x)
+                x2[i]+=dpar[i]
+                p0 = x2[0:3]
+                v0 = x2[3:6]
+                rho_m_r=x2[6]
+                model_rna2,model_rws2,model_rsv2,model_dna2,model_dws2,model_dsv2 = forward_model_meas3(p0,v0,
+                                                                                                        tna,tws,tsv,
+                                                                                                        p_tx,
+                                                                                                        p_na,p_ws,p_sv,
+                                                                                                        rho_m_r=rho_m_r,plot=False,
+                                                                                                        rho_m=1000)
+                J[0:len(tna),i]=(model_rna2-model_rna)/dpar[i]/na_std
+                J[len(tna):(len(tna)+len(tws)),i]=(model_rws2-model_rws)/dpar[i]/ws_std
+                J[(len(tna)+len(tws)):(len(tna)+len(tws)+len(tsv)),i]=(model_rsv2-model_rsv)/dpar[i]/sv_std
+                J[(len(tna)+len(tws)+len(tsv)):(2*len(tna)+len(tws)+len(tsv)),i]=(model_dna2-model_dna)/dpar[i]/dna_std
+                J[(2*len(tna)+len(tws)+len(tsv)):(2*len(tna)+2*len(tws)+len(tsv)),i]=(model_dws2-model_dws)/dpar[i]/dws_std
+                J[(2*len(tna)+2*len(tws)+len(tsv)):(2*len(tna)+2*len(tws)+2*len(tsv)),i]=(model_dsv2-model_dsv)/dpar[i]/dsv_std
+            C=n.linalg.inv(n.dot(n.transpose(J),J))
+            print(C)
+            plt.figure(figsize=(3*8,6.4))
+            plt.subplot(131)
+            plt.pcolormesh(C)
+            plt.title("Covariance matrix")
+            plt.xlabel("$x_1$, $x_2$, $x_3$, $v_1$, $v_2$, $v_3$, $\\rho_m r$")
+            plt.ylabel("$x_1$, $x_2$, $x_3$, $v_1$, $v_2$, $v_3$, $\\rho_m r$")
+
+            plt.colorbar()
+            plt.subplot(132)
+            plt.pcolormesh(C[0:6,0:6])
+            plt.title("Covariance matrix")
+            plt.xlabel("$x_1$, $x_2$, $x_3$, $v_1$, $v_2$, $v_3$, $\\rho_m r$")
+            plt.ylabel("$x_1$, $x_2$, $x_3$, $v_1$, $v_2$, $v_3$, $\\rho_m r$")
+            
+#            plt.xlabel("pos1,pos2,pos3,vel1,vel2,vel3")
+ #           plt.ylabel("pos1,pos2,pos3,vel1,vel2,vel3")
+            plt.colorbar()
+            
+            NC=correlation_from_covariance(C)
+            plt.subplot(133)
+            plt.pcolormesh(NC)
+            plt.title("Correlation matrix")
+            plt.xlabel("$x_1$, $x_2$, $x_3$, $v_1$, $v_2$, $v_3$, $\\rho_m r$")
+            plt.ylabel("$x_1$, $x_2$, $x_3$, $v_1$, $v_2$, $v_3$, $\\rho_m r$")
+            
+#            plt.xlabel("pos1,pos2,pos3,vel1,vel2,vel3,$\\rho_m r$")
+ #           plt.ylabel("pos1,pos2,pos3,vel1,vel2,vel3,$\\rho_m r$")
+            plt.colorbar()
+            plt.tight_layout()
+            plt.savefig("fit_cov.png",dpi=150)
+            plt.show()
+            print(n.sqrt(n.diag(C)))
+            
+        
         if plot:
+            plt.figure(figsize=(2*8,6.4))
             plt.subplot(121)
             plt.plot(tna,rna,".",color="C0",label="NA")
+            plt.title("$\sigma$=%1.2f,%1.2f,%1.2f (m)"%(na_std,ws_std,sv_std))
             plt.plot(tna,model_rna,color="C0")
             plt.plot(tws,rws,".",color="C1",label="WS")
             plt.plot(tws,model_rws,color="C1")
@@ -303,29 +398,93 @@ def msis_meteor_fit(p0_est,
             plt.xlabel("Time (s)")
             plt.ylabel("Propagation distance (km)")
             plt.subplot(122)
-            plt.plot(tna,dna,".",label="NA")
-            plt.plot(tna,model_dna)
-            plt.plot(tws,dws,".",label="WS")
-            plt.plot(tws,model_dws)
-            plt.plot(tsv,dsv,".",label="SV")
-            plt.plot(tsv,model_dsv)
+            plt.title("$\sigma$=%1.2f,%1.2f,%1.2f (Hz)"%(dna_std,dws_std,dsv_std))
+            plt.plot(tna,dna,".",label="NA",color="C0")
+            plt.plot(tna,model_dna,color="C0")
+            plt.plot(tws,dws,".",label="WS",color="C1")
+            plt.plot(tws,model_dws,color="C1")
+            plt.plot(tsv,dsv,".",label="SV",color="C2")
+            plt.plot(tsv,model_dsv,color="C2")
             plt.legend()
             plt.xlabel("Time (s)")
             plt.ylabel("Doppler-shift (Hz)")
             plt.tight_layout()
+            plt.savefig("fitres.png",dpi=150)
             plt.show()
         return(s)
+    
     import scipy.optimize as sio
     x0=n.zeros(7)
     x0[0:3]=p0_est
     x0[3:6]=v0_est
     x0[6]=0.1
     xhat=sio.fmin(ss,x0)
-    # plot the best fit
+    
+    # one more time
     plot=True
+    calc_cov=True
     ss(xhat)
     print(xhat)
 
+    test_smaller_masses=True
+    if test_smaller_masses:
+        # try out smaller masses to determine what is no longer supported by the data
+        plot=False
+        calc_cov=False
+        fix_rho_m_r=True
+        fixed_rho_m_r=xhat[6]*0.46
+        xhat2=sio.fmin(ss,xhat)
+        plot=True
+        calc_cov=False
+        ss(xhat2)
+
+        plot=False
+        calc_cov=False
+        fix_rho_m_r=True
+        # 
+        fixed_rho_m_r=xhat[6]*0.46**2.0
+        xhat2=sio.fmin(ss,xhat)
+        plot=True
+        calc_cov=False
+        ss(xhat2)
+
+
+        plot=False
+        calc_cov=False
+        fix_rho_m_r=True
+        fixed_rho_m_r=xhat[6]*0.46**4.0
+        xhat2=sio.fmin(ss,xhat)
+        plot=True
+        calc_cov=False
+        ss(xhat2)
+
+        plot=False
+        calc_cov=False
+        fix_rho_m_r=True
+        fixed_rho_m_r=xhat[6]*0.46**6.0
+        xhat2=sio.fmin(ss,xhat)
+        plot=True
+        calc_cov=False
+        ss(xhat2)
+
+        plot=False
+        calc_cov=False
+        fix_rho_m_r=True
+        fixed_rho_m_r=xhat[6]*0.46**7.0
+        xhat2=sio.fmin(ss,xhat)
+        plot=True
+        calc_cov=False
+        ss(xhat2)
+        
+        plot=False
+        calc_cov=False
+        fix_rho_m_r=True
+        fixed_rho_m_r=xhat[6]*0.46**8.0
+        xhat2=sio.fmin(ss,xhat)
+        plot=True
+        calc_cov=False
+        ss(xhat2)
+        
     all_time=n.concatenate([tna,tws,tsv])
     t0=n.min(all_time)
     max_time=n.max(all_time)-n.min(all_time)
@@ -340,10 +499,10 @@ def msis_meteor_fit(p0_est,
     
     for i in range(len(m_t)):
         llh=jcoord.ecef2geodetic(m_p[i,0],m_p[i,1],m_p[i,2])
-        print(llh)
         llhs.append(llh)
         
     llhs=n.array(llhs)
+    
     print("position %1.1f,%1.1f,%1.1f (ECEF meters) velocity %1.1f,%1.1f,%1.1f (ECEF m/s) epoch %1.2f (unix)"%(xhat[0],xhat[1],xhat[2],xhat[3],xhat[4],xhat[5],t0))
     print(llhs.shape)
     
@@ -356,7 +515,20 @@ def msis_meteor_fit(p0_est,
     plt.xlabel("Time (unix)")
     plt.ylabel("Altitude (km)")
     plt.show()
-
+    
+    ho=h5py.File(ofname,"w")
+    ho["model_time_unix"]=m_t
+    ho["model_lat_lon_h"]=llhs
+    ho["model_ecef"]=m_p
+    ho["epoch_unix"]=t0
+    ho["x0_ecef"]=xhat[0:3]
+    ho["v0_ecef"]=xhat[3:6]
+    ho["ml_pars"]=xhat
+    print(C)
+    ho["covariance"]=C
+    ho["rho_m_r"]=xhat[6]
+    ho.close()
+    
 
 def fit_trajectory():
     # extract the range, doppler and snr of the head echo
@@ -368,62 +540,41 @@ def fit_trajectory():
 
     msis_meteor_fit(p0_est,
                     v0_est,
-                    tna,
-                    tws,
-                    tsv,
-                    rna,
-                    rws,
-                    rsv,
+                    tna,tws,tsv,
+                    rna,rws,rsv,
                     dna,dws,dsv,
                     p_tx,
                     p_na,
                     p_ws,
                     p_sv)
+
     
-    print(v0_est)
-    print(n.linalg.norm(v0_est))
+    if False:
+        fig = plt.figure(figsize=[8, 6.4])
+        ax = fig.add_subplot( 1,1, 1, projection=ccrs.Orthographic(nm.tx_gps[1], nm.tx_gps[0]))
+        data_projection = ccrs.PlateCarree()
+        this_frame_date=datetime.utcfromtimestamp(n.min(tna))
+        ax.coastlines(zorder=3)
+        ax.stock_img()
+        ax.gridlines()
 
-    plt.subplot(131)
-    plt.plot(llhs[:,1],llhs[:,0])
-    plt.xlabel("Longitude (deg)")
-    plt.ylabel("Latitude (deg)")
-    plt.subplot(132)
-    plt.plot(ts,llhs[:,2]/1e3)
-    plt.xlabel("Time (unix)")
-    plt.ylabel("Height (km)")
-    
-    plt.subplot(133)
-    plt.plot(ts,n.sqrt(vx**2.0+vy**2.0+vz**2.0)/1e3)
-    plt.xlabel("Time (unix)")
-    plt.ylabel("Velocity (km/s)")
-    plt.show()
+        ax.add_feature(Nightshade(this_frame_date))
+    #    ax.set_extent((-60,-100,20,60),crs=ccrs.PlateCarree())
+        lons=n.copy(llhs[:,0])
+     #   negidx=n.where(lons<0)[0]
+    #    lons[negidx]=lons[negidx]+360
+        # make a scatterplot
+        mp=ax.scatter(llhs[:,1],
+                      lons,
 
-
-    fig = plt.figure(figsize=[8, 6.4])
-    ax = fig.add_subplot( 1,1, 1, projection=ccrs.Orthographic(nm.tx_gps[1], nm.tx_gps[0]))
-    data_projection = ccrs.PlateCarree()
-    this_frame_date=datetime.utcfromtimestamp(n.min(tna))
-    ax.coastlines(zorder=3)
-    ax.stock_img()
-    ax.gridlines()
-
-    ax.add_feature(Nightshade(this_frame_date))
-#    ax.set_extent((-60,-100,20,60),crs=ccrs.PlateCarree())
-    lons=n.copy(llhs[:,0])
- #   negidx=n.where(lons<0)[0]
-#    lons[negidx]=lons[negidx]+360
-    # make a scatterplot
-    mp=ax.scatter(llhs[:,1],
-                  lons,
-
-                  c=llhs[:,2]/1e3,
-                  vmin=70,
-                  vmax=120,
-                  transform=data_projection,
-                  zorder=2)
-    cb=plt.colorbar(mp,ax=ax)
-    cb.set_label("Altitude (km)")
-    plt.show()
+                      c=llhs[:,2]/1e3,
+                      vmin=70,
+                      vmax=120,
+                      transform=data_projection,
+                      zorder=2)
+        cb=plt.colorbar(mp,ax=ax)
+        cb.set_label("Altitude (km)")
+        plt.show()
     
 
 fit_trajectory()

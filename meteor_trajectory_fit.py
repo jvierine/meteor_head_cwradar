@@ -133,7 +133,7 @@ def forward_model(p0=[0,0,120e3],
  #      plt.ylabel("ECEF position (meters)")
 #        plt.subplot(122)
         plt.plot(ts,us/1e3)
-        plt.title("Dynamic mass: %1.2g kg  (assuming 1000 kg/m$^3$)\n $\rho_m r$ = %1.2g (kg/m$^2$)"%(mass,rho_m_r))
+        plt.title("Dynamic mass: %1.2g kg  (assuming 1000 kg/m$^3$)\n $\\rho_m r$ = %1.2g (kg/m$^2$)"%(mass,rho_m_r))
         plt.xlabel("Time (s)")
         plt.ylabel("Velocity (km/s)")
         plt.show()
@@ -339,8 +339,8 @@ def fit_drag_model(fname="test_data/20231212_003545766_event.ud3.h5",
 
 if __name__ == "__main__":
 #    forward_model(plot=True)    
-    #    create_msis_file(plot=True)
+    create_msis_file(plot=True)
 
-    fit_drag_model(fname="test_data/20231212_003520280_event.ud3.h5")
-    fit_drag_model(fname="test_data/20231212_003545766_event.ud3.h5")
-    fit_drag_model(fname="test_data/20231212_003553036_event.ud3.h5")    
+#    fit_drag_model(fname="test_data/20231212_003520280_event.ud3.h5")
+ #   fit_drag_model(fname="test_data/20231212_003545766_event.ud3.h5")
+  #  fit_drag_model(fname="test_data/20231212_003553036_event.ud3.h5")    
