@@ -7,14 +7,7 @@ def aspect_angle(xyz,p_tx,p_rx):
     calculate the aspect angles
     """
     a=p_tx[:].T-xyz
-    
     b=p_rx[:].T-xyz
-    print(b.shape)
-
-#    plt.plot(n.sqrt(n.sum(a*a,axis=1)))
-#    plt.plot(n.sqrt(n.sum(b*b,axis=1)))    
-#    plt.show()
-    
     angle=n.arccos(n.sum(a*b,axis=1)/(n.sqrt(n.sum(a*a,axis=1))*n.sqrt(n.sum(a*a,axis=1))))
     return(angle)
 
