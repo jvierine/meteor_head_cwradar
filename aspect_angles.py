@@ -8,7 +8,7 @@ def aspect_angle(xyz,p_tx,p_rx):
     """
     a=p_tx[:].T-xyz
     
-    b=xyz-p_rx[:].T
+    b=p_rx[:].T-xyz
     print(b.shape)
 
 #    plt.plot(n.sqrt(n.sum(a*a,axis=1)))
