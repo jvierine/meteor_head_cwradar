@@ -1,11 +1,5 @@
 import numpy as n
-import jcoord
-import h5py
 import matplotlib.pyplot as plt
-
-
-
-
 
 def aspect_angle(xyz,p_tx,p_rx):
     """
@@ -29,6 +23,8 @@ def aspect_angle(xyz,p_tx,p_rx):
 
 if __name__ == "__main__":
     import analyze_nm as nm
+    import jcoord
+    import h5py
 
     h=h5py.File("meteor_fit.h5","r")
     xyz=h["model_ecef"][()]
