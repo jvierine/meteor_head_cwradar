@@ -8,6 +8,10 @@ import matplotlib.pyplot as plt
 
 
 def aspect_angle(xyz,p_tx,p_rx):
+    """
+    given cartesian positions of scatterers (N,3) and tx & rx positions (3,)
+    calculate the aspect angles
+    """
     a=p_tx[:].T-xyz
     
     b=xyz-p_rx[:].T
@@ -30,10 +34,6 @@ if __name__ == "__main__":
     xyz=h["model_ecef"][()]
     llh=h["model_lat_lon_h"][()]
     t=h["model_time_unix"][()]    
-#    plt.plot(xyz[:,0])
-#    plt.plot(xyz[:,1])
-#    plt.plot(xyz[:,2])
-#    plt.show()
     p_tx=jcoord.geodetic2ecef(nm.tx_gps[0],nm.tx_gps[1],nm.tx_gps[2])
     p_na=jcoord.geodetic2ecef(nm.nm_rx_gps[1][0],nm.nm_rx_gps[1][1],nm.nm_rx_gps[1][2])
     p_sv=jcoord.geodetic2ecef(nm.nm_rx_gps[2][0],nm.nm_rx_gps[2][1],nm.nm_rx_gps[2][2])
