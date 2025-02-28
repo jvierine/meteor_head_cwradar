@@ -38,23 +38,26 @@ tx_freq=32.8e6
 tx_wavelength=c.c/tx_freq
       
 
-def overview(fname="/data0/simone-nm/raw_data/NA/CH000/rf@1705582560.000.h5",
+def overview(fname=["/data0/simone-nm/raw_data/NA/CH000/rf@1705582560.000.h5"],
              title="overview",
              plot_file="tmp.png"):
     h=h5py.File(fname,"r")
     print(h.keys())
 
     interp_len=1
-    
-    zo=h["rf_data"][()][:,0]
+
+    zo=n.array([],dtype=n.complex64)
+    for fn in fname:
+        zo=n.concatenate((zo,h["rf_data"][()][:,0]))
     # TODO: WE NEED TO DO A SPIKE REMOVAL
     # some stations are just too noisy
-    plt.plot(zo.real)
-    plt.plot(zo.imag)
-    plt.show()
-    plt.plot(10.0*n.log10(n.abs(n.fft.fftshift(n.fft.fft(zo)))**2.0))
-    plt.title(title)
-    plt.show()
+    if False:
+        plt.plot(zo.real)
+        plt.plot(zo.imag)
+        plt.show()
+        plt.plot(10.0*n.log10(n.abs(n.fft.fftshift(n.fft.fft(zo)))**2.0))
+        plt.title(title)
+        plt.show()
 
     z=n.repeat(zo,interp_len)
 
@@ -100,10 +103,10 @@ def decimate(a,declen=10):
 
 def range_doppler_matched_filter(fname,         # data file name
                                  rg=[50,120],   # range ranges to analyze (in data samples)
-                                 i0=3500*1000,  # first sample to process
-                                 i1=3900*1000,  # last sample to process
-                                 step=250,      # how many samples to step in time
-                                 interp_len=10, # interpolation factor for sub sample delay search
+                                 i0=35*100000,  # first sample to process
+                                 i1=120*100000, # last sample to process
+                                 step=500,      # how many samples to step in time
+                                 interp_len=2,  # interpolation factor for sub sample delay search
                                  fftlen=4096*2, # how many fft points for doppler search
                                  fftdec=2,      # reduce fft bandwidth by interp_len*fftdec
                                  n_codes = 1,   # how many codes are analyzed together
@@ -117,39 +120,41 @@ def range_doppler_matched_filter(fname,         # data file name
     range-doppler matched filter
     sub sample range resolution
     """
-    
-    h=h5py.File(fname,"r")
-    
-    
-    # interpolate received signal to a higher sample-rate
-    zo=h["rf_data"][()][:,0]
+    z=[]
+    tidx0=0
+    for fn in fname:
+        zo=n.array([],dtype=n.complex64)
+        for f in fn:
+            print(f)
+            h=h5py.File(f,"r")
+            # interpolate received signal to a higher sample-rate
+            zo=n.concatenate((zo,h["rf_data"][()][:,0]))
+            if tidx0 == 0:
+                tidx0 = h["rf_data_index"][()][0,0]
 
-    tidx0 = h["rf_data_index"][()][0,0]
-    
-#    use_spline=
-    if use_spline:
-        import scipy.interpolate as sint
-        x=n.arange(len(zo))+0.5
-        x[0]-=1
-        x[-1]+=1
-        xi=n.arange(len(zo)*interp_len)/interp_len+0.5/interp_len
-        zf=sint.interp1d(x,zo)
-        z=zf(xi)
-    else:
-        z=n.repeat(zo,interp_len)
+        if use_spline:
+            import scipy.interpolate as sint
+            x=n.arange(len(zo))+0.5
+            x[0]-=1
+            x[-1]+=1
+            xi=n.arange(len(zo)*interp_len)/interp_len+0.5/interp_len
+            zf=sint.interp1d(x,zo)
+            z.append(zf(xi))
+        else:
+            z.append(n.repeat(zo,interp_len))
 
     code_len=1000
     codes=ab.get_codes(interp_len,code_len=code_len,seeds=seed,n_codes=1)
 
-    # repeat the code so that we can read the transmitted
-    # code at an arbitrary delay and get sub code length time steps
+    # repeat the code throughout the echo length so that we can
+    # read the transmitted code at an arbitrary delay and get sub code length time steps
     repcodes=[]
-    nrep=int(n.round(len(z)/(interp_len*code_len)))
+    nrep=int(n.round(len(z[0])/(interp_len*code_len)))
     for ci in range(len(codes)):
         repcodes.append(n.tile(codes[ci],nrep))
         
     # number of time steps
-    n_window=int(n.floor((i1-i0)*interp_len/(interp_len*step)))
+    n_window=int(n.floor((i1-2*code_len-i0)*interp_len/(interp_len*step)))
 
     # time indices
     tx_idx=[]
@@ -164,40 +169,45 @@ def range_doppler_matched_filter(fname,         # data file name
         print("adjusting fftlen to %d"%(fftlen))
         
     freqs=n.fft.fftfreq(fftlen,d=1/(100e3/fftdec))
-    dopvel=3e8*freqs/2/32.8e6
+    dopvel=c.c*freqs/2/32.8e6
     D=n.zeros([n_window,n_rg],dtype=n.float32)
     D_Hz=n.zeros([n_window,n_rg],dtype=n.float32)    
 
-    
     for i in range(n_window):
-        print(i,n_window)
+        print("%d/%d"%(i,n_window))
         # index of transmit pulse start
         idx0 = i0*interp_len + i*step*interp_len
         # record transmit time for this window
         tx_idx.append(idx0/interp_len)
+        noise_floors=[]
+
         for rgi in range(n_rg):
-            # range shifted echo
-            echo = z[ (idx0+rgs_interp[rgi]):(idx0+n_codes*code_len*interp_len + rgs_interp[rgi]) ]
-            
-            # notch spikes to zero
-            if remove_spikes:
-                abs_echo=n.abs(echo)
-                noise_std_est=n.nanmedian(abs_echo)
-                echo[abs_echo>(3*noise_std_est)]=0.0
-            
             # allow sub code length steps!
             DP=n.zeros(fftlen,dtype=n.float32)
-            for ci in range(len(codes)):
-                # what was transmitted for this echo?
-                code = repcodes[ci][(idx0):(idx0+n_codes*code_len*interp_len)]
-                # average the doppler spectrum for all codes
-                DP+=n.abs(n.fft.fft(decimate(echo*n.conj(code),fftdec*interp_len),fftlen))**2.0
-                
+
+            for zi in range(len(z)):
+                # range shifted echo
+                echo = z[zi][ (idx0+rgs_interp[rgi]):(idx0+n_codes*code_len*interp_len + rgs_interp[rgi]) ]
+                # notch spikes to zero
+                if remove_spikes:
+                    abs_echo=n.abs(echo)
+                    noise_std_est=n.nanmedian(abs_echo)
+                    echo[abs_echo>(3*noise_std_est)]=0.0
+
+                for ci in range(len(codes)):
+                    # what was transmitted for this echo?
+                    code = repcodes[ci][(idx0):(idx0+n_codes*code_len*interp_len)]
+                    # average the doppler spectrum for all codes
+                    DP+=n.abs(n.fft.fft(decimate(echo*n.conj(code),fftdec*interp_len),fftlen))**2.0
+                noise_floors.append(n.median(DP))
+
             # record the doppler shift
             dopidx=n.argmax(DP)                
             D[i,rgi]=dopvel[dopidx]
             D_Hz[i,rgi]=freqs[dopidx]
             P[i,rgi]=DP[dopidx]
+        noise_floor=n.median(noise_floors)
+        P[i,:]=(P[i,:]-noise_floor)/noise_floor
 
     dB=10*n.log10(P.T)
     tx_idx=n.array(tx_idx)
@@ -213,20 +223,31 @@ def range_doppler_matched_filter(fname,         # data file name
     ho["D_Hz"]=D_Hz
     ho["D"]=D    
     ho.close()
+
+    ho=h5py.File("deco_%s.h5"%(plot_file),"w")
+    ho["transmit_time_samples"]=tx_idx
+    ho["transmit_time_sec"]=tx_ts
+    ho["time_epoch_unix_sec"]=tidx0/100e3
+    ho["echo_delay_us"]=10*rgs_interp/interp_len
+    ho["interpolation"]=interp_len
+    ho["range_delay_power"]=P
+    ho["doppler_Hz"]=D_Hz
+    ho["doppler_m_per_s"]=D
+    ho.close()
     if plot:
         fig=plt.figure(figsize=(20,10))
         plt.subplot(121)
-        plt.pcolormesh(tx_ts,10*rgs_interp/interp_len,dB,vmin=vlow,vmax=vlow+3)
+        plt.pcolormesh(tx_ts,10*rgs_interp/interp_len,dB,vmin=vlow,vmax=vlow+20)
         plt.xlabel("Time (s)")        
         plt.title(title)
         cb=plt.colorbar()
         cb.set_label("Power (dB)")
         plt.ylabel("Delay ($\\mu$s)")
         plt.subplot(122)
-        plt.pcolormesh(tx_ts,10*rgs_interp/interp_len,D.T,cmap="turbo",vmin=-70e3,vmax=0)
+        plt.pcolormesh(tx_ts,10*rgs_interp/interp_len,D_Hz.T,cmap="turbo")
         plt.title(title)
         cb=plt.colorbar()
-        cb.set_label("Doppler shift (m/s)")
+        cb.set_label("Doppler shift (Hertz)")
         plt.ylabel("Delay ($\\mu$s)")
         plt.xlabel("Time (s)")
         plt.tight_layout()
@@ -247,26 +268,21 @@ if __name__ == "__main__":
         overview("/data0/simone-nm/raw_data/WS/CH000/rf@1705582560.000.h5",title="WS0",plot_file="o_ws0.png")
         overview("/data0/simone-nm/raw_data/WS/CH001/rf@1705582560.000.h5",title="WS1",plot_file="o_ws1.png")
 
+        # Obenberger, K., Pfeffer, N., Chau, J., & Vierinen, J. (2025). New Mexico 2024-01-18 Bolide head and trail echo [Data set]. Zenodo. https://doi.org/10.5281/zenodo.14945152
     
     pars=[
-        {"fname":"/data0/simone-nm/raw_data/NA/CH000/rf@1705582560.000.h5",
-         "title":"NA0",
-         "plot_file":"rd_na0.png"},
-        {"fname":"/data0/simone-nm/raw_data/NA/CH001/rf@1705582560.000.h5",
-         "title":"NA1",
-         "plot_file":"rd_na1.png"},
-        {"fname":"/data0/simone-nm/raw_data/SV/CH000/rf@1705582560.000.h5",
-         "title":"SV0",
-         "plot_file":"rd_sv0.png"},
-        {"fname":"/data0/simone-nm/raw_data/SV/CH001/rf@1705582560.000.h5",
-         "title":"SV1",
-         "plot_file":"rd_sv1.png"},
-        {"fname":"/data0/simone-nm/raw_data/WS/CH000/rf@1705582560.000.h5",
-         "title":"WS0",
-         "plot_file":"rd_ws0.png"},
-        {"fname":"/data0/simone-nm/raw_data/WS/CH001/rf@1705582560.000.h5",
-         "title":"WS1",
-         "plot_file":"rd_ws1.png"},
+        {"fname":[["/data0/simone-nm/raw_data/NA/CH000/rf@1705582560.000.h5","/data0/simone-nm/raw_data/NA/CH000/rf@1705582620.000.h5"],
+                  ["/data0/simone-nm/raw_data/NA/CH001/rf@1705582560.000.h5","/data0/simone-nm/raw_data/NA/CH001/rf@1705582620.000.h5"]],
+         "title":"NA",
+         "plot_file":"rd_na.png"},
+        {"fname":[["/data0/simone-nm/raw_data/SV/CH000/rf@1705582560.000.h5","/data0/simone-nm/raw_data/SV/CH000/rf@1705582620.000.h5"],
+                  ["/data0/simone-nm/raw_data/SV/CH001/rf@1705582560.000.h5","/data0/simone-nm/raw_data/SV/CH001/rf@1705582620.000.h5"]],
+         "title":"SV",
+         "plot_file":"rd_sv.png"},
+        {"fname":[["/data0/simone-nm/raw_data/WS/CH000/rf@1705582560.000.h5","/data0/simone-nm/raw_data/WS/CH000/rf@1705582620.000.h5"],
+                  ["/data0/simone-nm/raw_data/WS/CH001/rf@1705582560.000.h5","/data0/simone-nm/raw_data/WS/CH001/rf@1705582620.000.h5"]],
+         "title":"WS",
+         "plot_file":"rd_ws.png"},
     ]
 
     for pi in range(rank,len(pars),size):
