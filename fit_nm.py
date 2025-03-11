@@ -9,7 +9,6 @@ import jcoord
 import meteor_trajectory_fit as tf
 
 
-
 import cartopy.crs as ccrs
 from datetime import datetime
 from cartopy.feature.nightshade import Nightshade
@@ -78,12 +77,12 @@ def get_head_echo(fname="rd_na0.png.h5",
 
     if plot:
         plt.subplot(121)
-        plt.pcolormesh(tx_idx,rgs_m,P_masked.T,vmin=0,vmax=2)
-        plt.plot(tms,rgs,"x")
+        plt.pcolormesh(tx_idx/100e3+t0,rgs_m,P_masked.T,vmin=0,vmax=2)
+        plt.plot(n.array(tms)/100e3+t0,rgs,"x")
         plt.colorbar()
         plt.subplot(122)
-        plt.pcolormesh(tx_idx,rgs_m,D_masked.T,cmap="turbo",vmin=-76e3,vmax=0)
-        plt.plot(tms,rgs,"x")
+        plt.pcolormesh(tx_idx/100e3+t0,rgs_m,D_masked.T,cmap="turbo",vmin=-76e3,vmax=0)
+        plt.plot(n.array(tms)/100e3+t0,rgs,"x")
         plt.colorbar()
         plt.show()
         
@@ -385,26 +384,45 @@ def msis_meteor_fit(p0_est,
             
         
         if plot:
+
+            model_rna2,model_rws2,model_rsv2,model_dna2,model_dws2,model_dsv2 = forward_model_meas3(p0,v0,
+                                                                                                    tsv,tsv,tsv,
+                                                                                                    p_tx,
+                                                                                                    p_na,p_ws,p_sv,
+                                                                                                    rho_m_r=rho_m_r,plot=False,
+                                                                                                    rho_m=1000)
+            
+            ho=h5py.File("tristatic_model.h5","w")
+            ho["t"]=tsv
+            ho["r_na"]=model_rna2
+            ho["r_ws"]=model_rws2
+            ho["r_sv"]=model_rsv2
+            ho["d_na"]=model_dna2
+            ho["d_ws"]=model_dws2
+            ho["d_sv"]=model_dsv2
+            ho.close()
+
+
             plt.figure(figsize=(2*8,6.4))
             plt.subplot(121)
             plt.plot(tna,rna,".",color="C0",label="NA")
             plt.title("$\sigma$=%1.2f,%1.2f,%1.2f (m)"%(na_std,ws_std,sv_std))
-            plt.plot(tna,model_rna,color="C0")
+            plt.plot(tsv,model_rna2,color="C0")
             plt.plot(tws,rws,".",color="C1",label="WS")
-            plt.plot(tws,model_rws,color="C1")
+            plt.plot(tsv,model_rws2,color="C1")
             plt.plot(tsv,rsv,".",color="C2",label="SV")
-            plt.plot(tsv,model_rsv,color="C2")
+            plt.plot(tsv,model_rsv2,color="C2")
             plt.legend()
             plt.xlabel("Time (s)")
             plt.ylabel("Propagation distance (km)")
             plt.subplot(122)
             plt.title("$\sigma$=%1.2f,%1.2f,%1.2f (Hz)"%(dna_std,dws_std,dsv_std))
             plt.plot(tna,dna,".",label="NA",color="C0")
-            plt.plot(tna,model_dna,color="C0")
+            plt.plot(tsv,model_dna2,color="C0")
             plt.plot(tws,dws,".",label="WS",color="C1")
-            plt.plot(tws,model_dws,color="C1")
+            plt.plot(tsv,model_dws2,color="C1")
             plt.plot(tsv,dsv,".",label="SV",color="C2")
-            plt.plot(tsv,model_dsv,color="C2")
+            plt.plot(tsv,model_dsv2,color="C2")
             plt.legend()
             plt.xlabel("Time (s)")
             plt.ylabel("Doppler-shift (Hz)")
@@ -426,7 +444,7 @@ def msis_meteor_fit(p0_est,
     ss(xhat)
     print(xhat)
 
-    test_smaller_masses=True
+    test_smaller_masses=False
     if test_smaller_masses:
         # try out smaller masses to determine what is no longer supported by the data
         plot=False
@@ -530,11 +548,18 @@ def msis_meteor_fit(p0_est,
     ho.close()
     
 
-def fit_trajectory():
+def fit_trajectory(t0=1705582596,t1=1705582598):
     # extract the range, doppler and snr of the head echo
-    tna,rna,dna,sna=get_head_echo("rd_na0.png.h5")
-    tws,rws,dws,sws=get_head_echo("rd_ws1.png.h5")
-    tsv,rsv,dsv,ssv=get_head_echo("rd_sv0.png.h5")
+    tna,rna,dna,sna=get_head_echo("rd_na.png.h5")
+    tws,rws,dws,sws=get_head_echo("rd_ws.png.h5")
+    tsv,rsv,dsv,ssv=get_head_echo("rd_sv.png.h5")
+
+    gidx=n.where( (tna>t0) & (tna<t1) )[0]
+    tna=tna[gidx];rna=rna[gidx];dna=dna[gidx];sna=sna[gidx]
+    gidx=n.where( (tws>t0) & (tws<t1) )[0]
+    tws=tws[gidx];rws=rws[gidx];dws=dws[gidx];sws=sws[gidx]
+    gidx=n.where( (tsv>t0) & (tsv<t1) )[0]
+    tsv=tsv[gidx];rsv=rsv[gidx];dsv=dsv[gidx];ssv=ssv[gidx]
 
     poss, llhs, vx, vy, vz, ts, p0_est, v0_est = simple_trajectory_fit(tna,tws,tsv,rna,rws,rsv)
 

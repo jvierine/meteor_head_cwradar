@@ -271,16 +271,16 @@ if __name__ == "__main__":
         # Obenberger, K., Pfeffer, N., Chau, J., & Vierinen, J. (2025). New Mexico 2024-01-18 Bolide head and trail echo [Data set]. Zenodo. https://doi.org/10.5281/zenodo.14945152
     
     pars=[
-        {"fname":[["/data0/simone-nm/raw_data/NA/CH000/rf@1705582560.000.h5","/data0/simone-nm/raw_data/NA/CH000/rf@1705582620.000.h5"],
-                  ["/data0/simone-nm/raw_data/NA/CH001/rf@1705582560.000.h5","/data0/simone-nm/raw_data/NA/CH001/rf@1705582620.000.h5"]],
+        {"fname":[["data/NA/CH000/rf@1705582560.000.h5","data/NA/CH000/rf@1705582620.000.h5"],
+                  ["data/NA/CH001/rf@1705582560.000.h5","data/NA/CH001/rf@1705582620.000.h5"]],
          "title":"NA",
          "plot_file":"rd_na.png"},
-        {"fname":[["/data0/simone-nm/raw_data/SV/CH000/rf@1705582560.000.h5","/data0/simone-nm/raw_data/SV/CH000/rf@1705582620.000.h5"],
-                  ["/data0/simone-nm/raw_data/SV/CH001/rf@1705582560.000.h5","/data0/simone-nm/raw_data/SV/CH001/rf@1705582620.000.h5"]],
+        {"fname":[["data/SV/CH000/rf@1705582560.000.h5","data/SV/CH000/rf@1705582620.000.h5"],
+                  ["data/SV/CH001/rf@1705582560.000.h5","data/SV/CH001/rf@1705582620.000.h5"]],
          "title":"SV",
          "plot_file":"rd_sv.png"},
-        {"fname":[["/data0/simone-nm/raw_data/WS/CH000/rf@1705582560.000.h5","/data0/simone-nm/raw_data/WS/CH000/rf@1705582620.000.h5"],
-                  ["/data0/simone-nm/raw_data/WS/CH001/rf@1705582560.000.h5","/data0/simone-nm/raw_data/WS/CH001/rf@1705582620.000.h5"]],
+        {"fname":[["data/WS/CH000/rf@1705582560.000.h5","data/WS/CH000/rf@1705582620.000.h5"],
+                  ["data/WS/CH001/rf@1705582560.000.h5","data/WS/CH001/rf@1705582620.000.h5"]],
          "title":"WS",
          "plot_file":"rd_ws.png"},
     ]
