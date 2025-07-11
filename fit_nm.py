@@ -172,16 +172,9 @@ def simple_trajectory_fit(tna,
         plt.plot(tsv,rsv/1e3,".",label="SV")
         plt.plot(tsv,rsvfun(tsv)/1e3)
         plt.legend()
+        plt.title("Simple fit")
         plt.xlabel("Time (unix)")
         plt.ylabel("Range (km)")
-#        plt.subplot(222)
-#        plt.plot(tna,dna,".")
-#        plt.plot(tws,dws,".")
-#        plt.plot(tsv,dsv,".")
-#        plt.subplot(223)
-#        plt.plot(tna,sna,".")
-#        plt.plot(tws,sws,".")
-#        plt.plot(tsv,ssv,".")
         plt.show()
         
     
@@ -281,11 +274,11 @@ def msis_meteor_fit(p0_est,
     """
     fit with msis atmospheric density for drag
     """
-    calc_cov=False
+#    calc_cov=False
     fix_rho_m_r=False 
     fixed_rho_m_r=0.1
-    C=None
-    def ss(x):
+ #   C=None
+    def ss(x,calc_cov=False):
         global C
         p0 = x[0:3]
         v0 = x[3:6]
@@ -308,7 +301,7 @@ def msis_meteor_fit(p0_est,
         s+=n.sum(n.abs(model_rws-rws)**2.0)
         s+=n.sum(n.abs(model_rsv-rsv)**2.0)
         # weight the doppler down by this factor
-        dopw=1e-2
+        dopw=100
         dsumna=n.abs(model_dna-dna)**2.0
         s+=dopw*n.sum(dsumna)
         dsumws=n.abs(model_dws-dws)**2.0
@@ -348,39 +341,41 @@ def msis_meteor_fit(p0_est,
                 J[(2*len(tna)+len(tws)+len(tsv)):(2*len(tna)+2*len(tws)+len(tsv)),i]=(model_dws2-model_dws)/dpar[i]/dws_std
                 J[(2*len(tna)+2*len(tws)+len(tsv)):(2*len(tna)+2*len(tws)+2*len(tsv)),i]=(model_dsv2-model_dsv)/dpar[i]/dsv_std
             C=n.linalg.inv(n.dot(n.transpose(J),J))
+            print("C")
             print(C)
-            plt.figure(figsize=(3*8,6.4))
-            plt.subplot(131)
-            plt.pcolormesh(C)
-            plt.title("Covariance matrix")
-            plt.xlabel("$x_1$, $x_2$, $x_3$, $v_1$, $v_2$, $v_3$, $\\rho_m r$")
-            plt.ylabel("$x_1$, $x_2$, $x_3$, $v_1$, $v_2$, $v_3$, $\\rho_m r$")
+            if False:
+                plt.figure(figsize=(3*8,6.4))
+                plt.subplot(131)
+                plt.pcolormesh(C)
+                plt.title("Covariance matrix")
+                plt.xlabel("$x_1$, $x_2$, $x_3$, $v_1$, $v_2$, $v_3$, $\\rho_m r$")
+                plt.ylabel("$x_1$, $x_2$, $x_3$, $v_1$, $v_2$, $v_3$, $\\rho_m r$")
 
-            plt.colorbar()
-            plt.subplot(132)
-            plt.pcolormesh(C[0:6,0:6])
-            plt.title("Covariance matrix")
-            plt.xlabel("$x_1$, $x_2$, $x_3$, $v_1$, $v_2$, $v_3$, $\\rho_m r$")
-            plt.ylabel("$x_1$, $x_2$, $x_3$, $v_1$, $v_2$, $v_3$, $\\rho_m r$")
-            
-#            plt.xlabel("pos1,pos2,pos3,vel1,vel2,vel3")
- #           plt.ylabel("pos1,pos2,pos3,vel1,vel2,vel3")
-            plt.colorbar()
-            
-            NC=correlation_from_covariance(C)
-            plt.subplot(133)
-            plt.pcolormesh(NC)
-            plt.title("Correlation matrix")
-            plt.xlabel("$x_1$, $x_2$, $x_3$, $v_1$, $v_2$, $v_3$, $\\rho_m r$")
-            plt.ylabel("$x_1$, $x_2$, $x_3$, $v_1$, $v_2$, $v_3$, $\\rho_m r$")
-            
-#            plt.xlabel("pos1,pos2,pos3,vel1,vel2,vel3,$\\rho_m r$")
- #           plt.ylabel("pos1,pos2,pos3,vel1,vel2,vel3,$\\rho_m r$")
-            plt.colorbar()
-            plt.tight_layout()
-            plt.savefig("fit_cov.png",dpi=150)
-            plt.show()
-            print(n.sqrt(n.diag(C)))
+                plt.colorbar()
+                plt.subplot(132)
+                plt.pcolormesh(C[0:6,0:6])
+                plt.title("Covariance matrix")
+                plt.xlabel("$x_1$, $x_2$, $x_3$, $v_1$, $v_2$, $v_3$, $\\rho_m r$")
+                plt.ylabel("$x_1$, $x_2$, $x_3$, $v_1$, $v_2$, $v_3$, $\\rho_m r$")
+                
+    #            plt.xlabel("pos1,pos2,pos3,vel1,vel2,vel3")
+    #           plt.ylabel("pos1,pos2,pos3,vel1,vel2,vel3")
+                plt.colorbar()
+                
+                NC=correlation_from_covariance(C)
+                plt.subplot(133)
+                plt.pcolormesh(NC)
+                plt.title("Correlation matrix")
+                plt.xlabel("$x_1$, $x_2$, $x_3$, $v_1$, $v_2$, $v_3$, $\\rho_m r$")
+                plt.ylabel("$x_1$, $x_2$, $x_3$, $v_1$, $v_2$, $v_3$, $\\rho_m r$")
+                
+    #            plt.xlabel("pos1,pos2,pos3,vel1,vel2,vel3,$\\rho_m r$")
+    #           plt.ylabel("pos1,pos2,pos3,vel1,vel2,vel3,$\\rho_m r$")
+                plt.colorbar()
+                plt.tight_layout()
+                plt.savefig("fit_cov.png",dpi=150)
+                plt.show()
+                print(n.sqrt(n.diag(C)))
             
         
         if plot:
@@ -429,79 +424,24 @@ def msis_meteor_fit(p0_est,
             plt.tight_layout()
             plt.savefig("fitres.png",dpi=150)
             plt.show()
-        return(s)
+        if calc_cov:
+            return(s,C)
+        else:
+            return(s)
     
     import scipy.optimize as sio
     x0=n.zeros(7)
     x0[0:3]=p0_est
     x0[3:6]=v0_est
-    x0[6]=0.1
+    x0[6]=100
     xhat=sio.fmin(ss,x0)
     
     # one more time
     plot=True
     calc_cov=True
-    ss(xhat)
+    ssq,C=ss(xhat,calc_cov=True)
+    print(C)
     print(xhat)
-
-    test_smaller_masses=False
-    if test_smaller_masses:
-        # try out smaller masses to determine what is no longer supported by the data
-        plot=False
-        calc_cov=False
-        fix_rho_m_r=True
-        fixed_rho_m_r=xhat[6]*0.46
-        xhat2=sio.fmin(ss,xhat)
-        plot=True
-        calc_cov=False
-        ss(xhat2)
-
-        plot=False
-        calc_cov=False
-        fix_rho_m_r=True
-        # 
-        fixed_rho_m_r=xhat[6]*0.46**2.0
-        xhat2=sio.fmin(ss,xhat)
-        plot=True
-        calc_cov=False
-        ss(xhat2)
-
-
-        plot=False
-        calc_cov=False
-        fix_rho_m_r=True
-        fixed_rho_m_r=xhat[6]*0.46**4.0
-        xhat2=sio.fmin(ss,xhat)
-        plot=True
-        calc_cov=False
-        ss(xhat2)
-
-        plot=False
-        calc_cov=False
-        fix_rho_m_r=True
-        fixed_rho_m_r=xhat[6]*0.46**6.0
-        xhat2=sio.fmin(ss,xhat)
-        plot=True
-        calc_cov=False
-        ss(xhat2)
-
-        plot=False
-        calc_cov=False
-        fix_rho_m_r=True
-        fixed_rho_m_r=xhat[6]*0.46**7.0
-        xhat2=sio.fmin(ss,xhat)
-        plot=True
-        calc_cov=False
-        ss(xhat2)
-        
-        plot=False
-        calc_cov=False
-        fix_rho_m_r=True
-        fixed_rho_m_r=xhat[6]*0.46**8.0
-        xhat2=sio.fmin(ss,xhat)
-        plot=True
-        calc_cov=False
-        ss(xhat2)
         
     all_time=n.concatenate([tna,tws,tsv])
     t0=n.min(all_time)
@@ -547,7 +487,8 @@ def msis_meteor_fit(p0_est,
     ho["rho_m_r"]=xhat[6]
     ho.close()
     
-
+# 
+#pre-fragmentation 1705578997.0
 def fit_trajectory(t0=1705582596,t1=1705582598):
     # extract the range, doppler and snr of the head echo
     tna,rna,dna,sna=get_head_echo("rd_na.png.h5")
@@ -561,7 +502,15 @@ def fit_trajectory(t0=1705582596,t1=1705582598):
     gidx=n.where( (tsv>t0) & (tsv<t1) )[0]
     tsv=tsv[gidx];rsv=rsv[gidx];dsv=dsv[gidx];ssv=ssv[gidx]
 
-    poss, llhs, vx, vy, vz, ts, p0_est, v0_est = simple_trajectory_fit(tna,tws,tsv,rna,rws,rsv)
+    poss, llhs, vx, vy, vz, ts, p0_est, v0_est = simple_trajectory_fit(tna,tws,tsv,rna,rws,rsv,plot=True)
+
+    t1=1705582597
+    gidx=n.where( (tna>t0) & (tna<t1) )[0]
+    tna=tna[gidx];rna=rna[gidx];dna=dna[gidx];sna=sna[gidx]
+    gidx=n.where( (tws>t0) & (tws<t1) )[0]
+    tws=tws[gidx];rws=rws[gidx];dws=dws[gidx];sws=sws[gidx]
+    gidx=n.where( (tsv>t0) & (tsv<t1) )[0]
+    tsv=tsv[gidx];rsv=rsv[gidx];dsv=dsv[gidx];ssv=ssv[gidx]
 
     msis_meteor_fit(p0_est,
                     v0_est,
